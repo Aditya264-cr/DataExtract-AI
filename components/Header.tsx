@@ -1,9 +1,12 @@
+
 import React, { useState, useContext } from 'react';
 import { HeaderSettingsIcon } from './icons/HeaderSettingsIcon';
 import { HeaderFAQIcon } from './icons/HeaderFAQIcon';
 import { HeaderHomeIcon } from './icons/HeaderHomeIcon';
+import { InformationCircleIcon } from './icons/InformationCircleIcon';
 import { FAQPanel } from './FAQPanel';
 import { SettingsPanel } from './SettingsPanel';
+import { CopyrightPanel } from './CopyrightPanel';
 import { SettingsContext } from '../contexts/SettingsContext';
 import { Tooltip } from './ui/Tooltip';
 
@@ -17,12 +20,18 @@ export const Header: React.FC<HeaderProps> = ({
     const { setPanelOpen } = useContext(SettingsContext);
     const [isFaqOpen, setIsFaqOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isCopyrightOpen, setIsCopyrightOpen] = useState(false);
 
-    const openFaq = () => { setIsSettingsOpen(false); setIsFaqOpen(true); setPanelOpen(true); };
+    const openFaq = () => { setIsSettingsOpen(false); setIsCopyrightOpen(false); setIsFaqOpen(true); setPanelOpen(true); };
     const closeFaq = () => { setIsFaqOpen(false); setPanelOpen(false); };
-    const openSettings = () => { setIsFaqOpen(false); setIsSettingsOpen(true); setPanelOpen(true); };
+    
+    const openSettings = () => { setIsFaqOpen(false); setIsCopyrightOpen(false); setIsSettingsOpen(true); setPanelOpen(true); };
     const closeSettings = () => { setIsSettingsOpen(false); setPanelOpen(false); };
-    const handleHomeClick = () => { closeFaq(); closeSettings(); onHomeClick(); };
+
+    const openCopyright = () => { setIsFaqOpen(false); setIsSettingsOpen(false); setIsCopyrightOpen(true); setPanelOpen(true); };
+    const closeCopyright = () => { setIsCopyrightOpen(false); setPanelOpen(false); };
+
+    const handleHomeClick = () => { closeFaq(); closeSettings(); closeCopyright(); onHomeClick(); };
 
     const buttonClasses = "p-2.5 rounded-xl text-gray-500 dark:text-gray-300 hover:text-[#007AFF] hover:bg-white/50 dark:hover:bg-white/10 transition-all duration-300 active:scale-95";
 
@@ -58,11 +67,17 @@ export const Header: React.FC<HeaderProps> = ({
                                 <HeaderSettingsIcon className="w-5 h-5" />
                             </button>
                         </Tooltip>
+                        <Tooltip text="Copyright & Data Ownership" position="bottom">
+                            <button onClick={openCopyright} className={buttonClasses}>
+                                <InformationCircleIcon className="w-5 h-5" />
+                            </button>
+                        </Tooltip>
                     </div>
                 </div>
             </header>
             <FAQPanel isOpen={isFaqOpen} onClose={closeFaq} />
             <SettingsPanel isOpen={isSettingsOpen} onClose={closeSettings} />
+            <CopyrightPanel isOpen={isCopyrightOpen} onClose={closeCopyright} />
         </>
     );
 };
