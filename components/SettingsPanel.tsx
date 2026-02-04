@@ -127,11 +127,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                                     <div className="animate-fade-in space-y-2">
                                         <h3 className="text-2xl font-bold text-[#1d1d1f] dark:text-white mb-6 font-display">Appearance</h3>
                                         <SettingRow 
-                                            title="Dark Mode" 
-                                            description="Use a dark color theme for low-light environments." 
-                                            control={<ToggleSwitch checked={settings.darkMode} onChange={(e) => updateSetting('darkMode', e.target.checked)} />} 
-                                        />
-                                        <SettingRow 
                                             title="Glass Intensity" 
                                             description="Adjust the blur and transparency of UI panels." 
                                             control={

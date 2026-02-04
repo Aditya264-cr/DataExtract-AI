@@ -4,7 +4,6 @@ import { Template, Preset } from '../types';
 
 type Settings = {
     // Appearance
-    darkMode: boolean;
     glassIntensity: 'low' | 'medium' | 'high';
     
     // Output
@@ -64,7 +63,6 @@ const defaultPresets: Preset[] = [
 ];
 
 const defaultSettings: Settings = {
-    darkMode: false,
     glassIntensity: 'medium',
     defaultView: 'key_value',
     showSummary: true,
@@ -112,6 +110,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 }
                 // Ensure systemMode exists for legacy saved settings
                 if (!merged.systemMode) merged.systemMode = 'PROFESSIONAL';
+                // Remove legacy darkMode if present
+                delete merged.darkMode;
                 return merged;
             }
             return { ...defaultSettings, isPanelOpen: false };
@@ -144,28 +144,24 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, []);
 
     useEffect(() => {
-        // Apply Dark Mode
-        if (settings.darkMode) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
+        // Force Light Mode
+        document.documentElement.classList.remove('dark');
 
-        // Apply Glass Intensity
+        // Apply Glass Intensity (Light Mode Only)
         const root = document.documentElement;
         if (settings.glassIntensity === 'low') {
-            root.style.setProperty('--glass-surface', settings.darkMode ? 'rgba(30, 30, 32, 0.95)' : 'rgba(255, 255, 255, 0.95)');
+            root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.95)');
             root.style.setProperty('--glass-blur', '10px');
         } else if (settings.glassIntensity === 'high') {
-            root.style.setProperty('--glass-surface', settings.darkMode ? 'rgba(30, 30, 32, 0.40)' : 'rgba(255, 255, 255, 0.40)');
+            root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.40)');
             root.style.setProperty('--glass-blur', '40px');
         } else {
-            // Medium (Default) - Matching updated Global CSS
-            root.style.setProperty('--glass-surface', settings.darkMode ? 'rgba(30, 30, 32, 0.60)' : 'rgba(255, 255, 255, 0.55)');
+            // Medium (Default)
+            root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.55)');
              root.style.setProperty('--glass-blur', '20px');
         }
 
-    }, [settings.darkMode, settings.glassIntensity]);
+    }, [settings.glassIntensity]);
 
     const updateSetting = (key: keyof Omit<Settings, 'isPanelOpen' | 'templates' | 'presets'>, value: any) => {
         setSettings(prevSettings => {

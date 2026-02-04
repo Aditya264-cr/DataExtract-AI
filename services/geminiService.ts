@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Chat, GenerateContentResponse } from "@google/genai";
-import type { UploadedFile, ExtractedData, AISummaryData, ChatMessage } from '../types';
+import type { UploadedFile, ExtractedData, AISummaryData, ChatMessage, Highlight } from '../types';
 import { fileToBase64 } from '../utils/fileUtils';
 
 // Always initialize GoogleGenAI using the process.env.API_KEY environment variable.
@@ -51,77 +51,156 @@ export const performExtraction = async (
     language: string,
     editedData?: ExtractedData
 ): Promise<ExtractedData> => {
-    const languageHint = language !== 'auto' ? ` The document is written in ${language}.` : '';
+    const languageHint = language !== 'auto' ? ` The content language is ${language}.` : '';
     const imageParts = await Promise.all(
         files.map(async (file) => ({
             inlineData: { mimeType: file.file.type, data: await fileToBase64(file.file) },
         }))
     );
 
-    // --- Step 1: The Scout (Layout Analysis) ---
-    // Uses the low-latency model to build a roadmap of the document structure.
-    let scoutContext = "";
-    try {
-        const scoutPrompt = `
-        Analyze the visual layout of this ${docType}. 
-        Identify the distinct sections (e.g., Header, Vendor Details, Clauses, Standards, Line Items).
-        List what key data resides in each to guide intelligent extraction.
-        `;
-        
-        const scoutResponse = await ai.models.generateContent({
-            model: MODEL_LITE,
-            contents: { parts: [{ text: scoutPrompt }, ...imageParts] },
-        });
-        scoutContext = scoutResponse.text || "No distinct sections identified.";
-    } catch (e) {
-        console.warn("Scout pass failed, proceeding to direct extraction.", e);
-        scoutContext = "Layout analysis unavailable.";
-    }
-
-    // --- Step 2: The Sniper (Deep Intelligent Extraction) ---
-    // Uses the Pro model with reasoning, guided by the Scout's map.
+    // New System Prompt Definition
     const prompt = `
-Analyze this ${docType} and extract all structured data.${languageHint}
+You are a multimodal data extraction and analysis system.
 
-INPUT CONTEXT (Layout Analysis):
-${scoutContext}
+Your task is to analyze ANY unstructured input and convert it into a clean, structured, machine‑readable format.
+Context: The user identifies this document as: "${docType}". ${userDescription ? `User instructions: "${userDescription}".` : ''}
+${languageHint}
 
-CRITICAL INSTRUCTIONS FOR DATA QUALITY & VERIFICATION:
-1. **High-Fidelity Extraction**: Prioritize exactness over estimation. If a field is ambiguous or illegible, mark it as null or provide the closest possible value with a lower confidence score.
-2. **Human-in-the-Loop Prep**: Your output is the first step in a verification chain. Flag any potential errors, inconsistencies, or low-quality regions by assigning appropriate confidence scores.
-3. **Validation**: Perform internal validation where possible (e.g., check if line item totals sum to the subtotal, verify date formats).
-4. **Standardization**: Ensure all extracted data adheres to a strict schema for consistency. Normalize entity names and codes to reduce data noise.
-5. **Relationships**: Preserve the logical relationships between data points (e.g., which tax applies to which line item).
+==============================
+ABSOLUTE RULES (CRITICAL)
+==============================
 
-STRICT DATA TYPE ENFORCEMENT:
-- DATES: MUST be ISO 8601 "YYYY-MM-DD".
-- NUMBERS: MUST be raw Floats/Integers.
-- BOOLEANS: Use JSON true/false.
+1. DO NOT hallucinate missing information.
+2. DO NOT guess unclear values.
+3. If something is unreadable or ambiguous, mark it explicitly.
+4. Preserve original meaning and context.
+5. Output MUST be structured JSON only.
+6. Never output raw or unstructured text.
 
-The final output must be a single, well-formed JSON object.
+==============================
+ANALYSIS RESPONSIBILITIES
+==============================
 
-The JSON object must have:
-1. "documentType": "${docType}"
-2. "confidenceScore": (0-100)
-3. "data": Object or Array of objects containing key-value pairs, tables, and lists.
-4. "highlights": Array of objects for EACH field in "data":
-    - "fieldName": corresponding key
-    - "text": exact extracted text
-    - "boundingBox": [x_min, y_min, x_max, y_max] normalized (0-1)
-    - "confidence": (0-100)
+You must perform ALL applicable steps:
 
-${userDescription ? `User Requirements: "${userDescription}"` : ''}
-${editedData ? `Previous Correction Context: ${JSON.stringify(editedData.data)}` : ''}
+1️⃣ CONTENT UNDERSTANDING  
+• Identify the type of content (document, notice, form, image, mixed)
+• Detect language
+• Detect presence of tables, lists, images, or handwriting
+
+2️⃣ TEXT & DATA EXTRACTION  
+• Extract all meaningful text
+• Identify titles, headings, sections
+• Extract dates, names, numbers, schedules, steps, metadata
+• Preserve hierarchy and relationships
+
+3️⃣ TABLE & LIST HANDLING  
+• Convert tables into structured rows and columns
+• Convert bullet points into structured arrays
+• Maintain original ordering
+
+4️⃣ IMAGE ANALYSIS (MANDATORY IF IMAGE EXISTS)  
+If the input contains images:
+• Detect and list all visible objects
+• Identify object names (e.g., person, building, car, logo, document, signature, stamp)
+• If text is present in the image, extract it (OCR)
+• If objects are unclear, label them as "Unidentified Object"
+
+5️⃣ CONFIDENCE & READABILITY  
+• For each extracted field, assign a confidence score (0–100)
+• If unreadable → value = "[Unreadable]" and confidence = 0
+• **IMPORTANT**: For every extracted text value in "structuredData", you MUST include a "boundingBox" field with [ymin, xmin, ymax, xmax] coordinates (normalized 0-1) if the text is visible in the image.
+
+==============================
+OUTPUT STRUCTURE (STRICT)
+==============================
+
+Return a SINGLE JSON object in the following format:
+
+{
+  "meta": {
+    "contentType": "text | document | image | mixed",
+    "detectedLanguage": "ISO-639-1 code",
+    "hasImages": true | false,
+    "hasTables": true | false,
+    "hasHandwriting": true | false
+  },
+
+  "structuredData": {
+    "title": {
+      "value": "string",
+      "confidence": number,
+      "boundingBox": [ymin, xmin, ymax, xmax]
+    },
+
+    "sections": [
+      {
+        "heading": "string",
+        "content": [
+          {
+            "label": "field name",
+            "value": "string | number | boolean | null",
+            "confidence": number,
+            "boundingBox": [ymin, xmin, ymax, xmax]
+          }
+        ]
+      }
+    ],
+
+    "tables": [
+      {
+        "tableName": "string",
+        "headers": ["Column1", "Column2"],
+        "rows": [
+          {
+            "Column1": { "value": "string", "confidence": number, "boundingBox": [...] },
+            "Column2": { "value": "string", "confidence": number, "boundingBox": [...] }
+          }
+        ]
+      }
+    ]
+  },
+
+  "imageAnalysis": {
+    "objectsDetected": [
+      {
+        "objectName": "string",
+        "description": "short description",
+        "confidence": number
+      }
+    ],
+    "extractedText": [
+      {
+        "text": "string",
+        "confidence": number
+      }
+    ]
+  },
+
+  "rawTextSummary": "1–2 sentence factual summary of the content"
+}
+
+==============================
+IMPORTANT BEHAVIOR RULES
+==============================
+
+• If an element does NOT exist, omit it entirely.
+• If tables do not exist, return "tables": [].
+• If no images exist, return "imageAnalysis": null.
+• Never merge unrelated data.
+• Accuracy is more important than completeness.
+
+${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)}` : ''}
 `;
 
     try {
         const response = await ai.models.generateContent({
-            model: MODEL_PRO, // Use Pro for complex extraction
+            model: MODEL_PRO, // gemini-3-pro-preview
             contents: { parts: [{ text: prompt }, ...imageParts] },
             config: { 
                 responseMimeType: "application/json",
-                // Enable Thinking Mode with max budget for reasoning
-                thinkingConfig: { thinkingBudget: 32768 }
+                // Enable Thinking Mode with max budget for detailed forensic analysis
+                thinkingConfig: { thinkingBudget: 32768 } 
             },
         });
 
@@ -129,8 +208,72 @@ ${editedData ? `Previous Correction Context: ${JSON.stringify(editedData.data)}`
         if (!responseText) {
             throw new Error("Extraction engine returned an empty response.");
         }
+        
         const parsed = JSON.parse(responseText.trim().replace(/^```json\n/, '').replace(/\n```$/, ''));
-        return parsed as ExtractedData;
+        
+        // --- Post-Processing: Map to ExtractedData Interface & Extract Highlights ---
+        const highlights: Highlight[] = [];
+        
+        // Helper to extract highlight from a field object
+        const processField = (field: any, name: string) => {
+            if (field && field.boundingBox && Array.isArray(field.boundingBox)) {
+                highlights.push({
+                    fieldName: name,
+                    text: String(field.value),
+                    boundingBox: [
+                        field.boundingBox[1], // x_min
+                        field.boundingBox[0], // y_min
+                        field.boundingBox[3], // x_max
+                        field.boundingBox[2]  // y_max
+                    ],
+                    confidence: field.confidence || 0
+                });
+            }
+        };
+
+        // 1. Process Title
+        if (parsed.structuredData?.title) {
+            processField(parsed.structuredData.title, "Document Title");
+        }
+
+        // 2. Process Sections
+        if (Array.isArray(parsed.structuredData?.sections)) {
+            parsed.structuredData.sections.forEach((section: any) => {
+                if (Array.isArray(section.content)) {
+                    section.content.forEach((item: any) => {
+                        const fieldName = `${section.heading || 'General'} > ${item.label}`;
+                        processField(item, fieldName);
+                    });
+                }
+            });
+        }
+
+        // 3. Process Tables
+        if (Array.isArray(parsed.structuredData?.tables)) {
+            parsed.structuredData.tables.forEach((table: any) => {
+                if (Array.isArray(table.rows)) {
+                    table.rows.forEach((row: any, rowIndex: number) => {
+                        Object.entries(row).forEach(([colName, cell]: [string, any]) => {
+                            const fieldName = `${table.tableName || 'Table'} [Row ${rowIndex + 1}] > ${colName}`;
+                            processField(cell, fieldName);
+                        });
+                    });
+                }
+            });
+        }
+
+        // Return strictly typed ExtractedData
+        return {
+            documentType: parsed.meta?.contentType || docType,
+            confidenceScore: parsed.structuredData?.title?.confidence || 90, // Fallback confidence
+            meta: parsed.meta,
+            structuredData: parsed.structuredData,
+            imageAnalysis: parsed.imageAnalysis,
+            rawTextSummary: parsed.rawTextSummary,
+            data: parsed.structuredData, // Keep for legacy refs if needed, though Adapter handles it
+            highlights: highlights
+        };
+
     } catch (e) {
         console.error(e);
         throw new Error("Extraction engine failed to parse document content.");
@@ -138,6 +281,14 @@ ${editedData ? `Previous Correction Context: ${JSON.stringify(editedData.data)}`
 };
 
 export const generateSummaryFromData = async (extractedData: ExtractedData, isDetailed = false): Promise<AISummaryData> => {
+    // If we already have a rawTextSummary from the main pass, use it first if it's simple
+    if (!isDetailed && extractedData.rawTextSummary) {
+        return {
+            summary: extractedData.rawTextSummary,
+            confidenceScore: extractedData.confidenceScore
+        };
+    }
+
     const detailInstruction = isDetailed 
         ? "Provide a highly comprehensive summary focusing on nuances, specific clauses, and edge cases."
         : "Generate a concise human-readable summary of 2 to 4 sentences.";
@@ -145,9 +296,7 @@ export const generateSummaryFromData = async (extractedData: ExtractedData, isDe
     const prompt = `
 ${detailInstruction}
 Target document type: ${extractedData.documentType}.
-Key findings needed: totals, critical dates, main entities, clauses, and standards found.
-**Insight Requirement**: Highlight potential data quality issues, ambiguities, or areas requiring human verification.
-Data source: ${JSON.stringify(extractedData.data)}.
+Data source: ${JSON.stringify(extractedData.structuredData)}.
 Return as JSON: { "summary": "string", "confidenceScore": number (0-100) }.
     `;
     
@@ -181,18 +330,17 @@ export const getExplanationForField = async (fieldName: string, fieldValue: stri
 
 export const askDocumentChat = async (extractedData: ExtractedData, question: string, chatHistory: ChatMessage[]): Promise<{ text: string; sources?: { title: string; uri: string }[] }> => {
     const chat = ai.chats.create({
-        model: MODEL_STD, // Use Standard Flash for tool support (Google Search)
+        model: MODEL_STD, // Use Standard Flash for tool support
         config: { 
-            systemInstruction: "You are a helpful AI assistant. Answer questions based on the provided document JSON data. If the user asks for external information not found in the document (e.g., verifying a company, checking stock prices, news, or regulatory compliance), you MUST use the Google Search tool to find the answer.",
+            systemInstruction: "You are a helpful AI assistant. Answer questions based on the provided document JSON data. If the user asks for external information not found in the document, use Google Search.",
             tools: [{ googleSearch: {} }] 
         },
         history: chatHistory.map(m => ({ role: m.role, parts: [{ text: m.content }] }))
     });
 
-    const result = await chat.sendMessage({ message: `Document Data: ${JSON.stringify(extractedData.data)}\n\nUser Question: ${question}` });
+    const result = await chat.sendMessage({ message: `Document Data: ${JSON.stringify(extractedData.structuredData)}\n\nUser Question: ${question}` });
     const text = result.text ?? "Sorry, I could not generate a response.";
 
-    // Extract grounding sources
     const sources: { title: string; uri: string }[] = [];
     const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
     

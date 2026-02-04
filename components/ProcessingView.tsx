@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { UploadedFile } from '../types';
 import { CheckCircleIcon } from './icons/CheckCircleIcon';
 
@@ -20,6 +20,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
     const [stepIndex, setStepIndex] = useState(0);
     const [fade, setFade] = useState(true);
     const isBatch = files.length > 1;
+    const canvasRef = useRef<HTMLCanvasElement>(null);
 
     // Text Rotation Logic
     useEffect(() => {
@@ -34,6 +35,107 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
         return () => clearInterval(interval);
     }, []);
 
+    // Neural Constellation Animation (Canvas)
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        let width = canvas.offsetWidth;
+        let height = canvas.offsetHeight;
+        let animationFrameId: number;
+        let particles: Array<{ x: number; y: number; vx: number; vy: number }> = [];
+
+        // Configuration
+        const particleCount = Math.floor((width * height) / 12000); // Responsive density
+        const connectionDistance = 140;
+        const particleSpeed = 0.35;
+
+        const initParticles = () => {
+            particles = [];
+            for (let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    vx: (Math.random() - 0.5) * particleSpeed,
+                    vy: (Math.random() - 0.5) * particleSpeed
+                });
+            }
+        };
+
+        const handleResize = () => {
+            if (canvas.parentElement) {
+                canvas.width = canvas.parentElement.clientWidth;
+                canvas.height = canvas.parentElement.clientHeight;
+                width = canvas.width;
+                height = canvas.height;
+                initParticles();
+            }
+        };
+
+        // Initial setup
+        handleResize();
+        window.addEventListener('resize', handleResize);
+
+        const animate = () => {
+            ctx.clearRect(0, 0, width, height);
+            
+            // Set strictly to black as requested
+            const colorBase = '0, 0, 0';
+
+            ctx.fillStyle = `rgba(${colorBase}, 0.5)`;
+            
+            // Update and Draw Particles
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i];
+                
+                // Move
+                p.x += p.vx;
+                p.y += p.vy;
+
+                // Wrap around edges
+                if (p.x < 0) p.x = width;
+                if (p.x > width) p.x = 0;
+                if (p.y < 0) p.y = height;
+                if (p.y > height) p.y = 0;
+
+                // Draw Particle
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Connect
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p2 = particles[j];
+                    const dx = p.x - p2.x;
+                    const dy = p.y - p2.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < connectionDistance) {
+                        ctx.beginPath();
+                        // Opacity based on distance (closer = more opaque)
+                        const opacity = (1 - dist / connectionDistance) * 0.15; 
+                        ctx.strokeStyle = `rgba(${colorBase}, ${opacity})`;
+                        ctx.lineWidth = 1;
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            animationFrameId = requestAnimationFrame(animate);
+        };
+
+        animate();
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            cancelAnimationFrame(animationFrameId);
+        };
+    }, []);
+
     const getFileStatus = (index: number) => {
         if (currentIndex === null || index > currentIndex) return 'Queued';
         if (index < currentIndex) return 'Done';
@@ -42,11 +144,12 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
 
     return (
         <div className="relative flex flex-col items-center justify-center w-full h-[65vh] overflow-hidden">
-            {/* --- Atmospheric Background --- */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                {/* Large gentle drifts */}
-                <div className="absolute top-1/2 left-1/2 w-[800px] h-[800px] bg-blue-100/40 dark:bg-blue-900/10 rounded-full blur-[120px] animate-drift-1 mix-blend-multiply dark:mix-blend-screen"></div>
-                <div className="absolute top-1/2 left-1/2 w-[600px] h-[600px] bg-violet-100/40 dark:bg-violet-900/10 rounded-full blur-[100px] animate-drift-2 mix-blend-multiply dark:mix-blend-screen"></div>
+            {/* --- Neural Constellation Background --- */}
+            <div className="absolute inset-0 pointer-events-none">
+                <canvas 
+                    ref={canvasRef} 
+                    className="w-full h-full opacity-60 dark:opacity-40"
+                />
             </div>
 
             {/* --- Main Processing Card --- */}
@@ -114,16 +217,6 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
 
             {/* Animation Styles */}
             <style>{`
-                @keyframes drift-1 {
-                    0% { transform: translate(-50%, -50%) rotate(0deg); }
-                    50% { transform: translate(-45%, -55%) rotate(10deg); }
-                    100% { transform: translate(-50%, -50%) rotate(0deg); }
-                }
-                @keyframes drift-2 {
-                    0% { transform: translate(-50%, -50%) rotate(0deg); }
-                    50% { transform: translate(-55%, -45%) rotate(-10deg); }
-                    100% { transform: translate(-50%, -50%) rotate(0deg); }
-                }
                 @keyframes orb-breath-1 {
                     0%, 100% { transform: scale(1); opacity: 0.8; }
                     50% { transform: scale(3.5); opacity: 0.1; }
@@ -142,8 +235,6 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
                     20% { transform: skewX(-12deg) translateX(200%); }
                     100% { transform: skewX(-12deg) translateX(200%); }
                 }
-                .animate-drift-1 { animation: drift-1 45s infinite ease-in-out; }
-                .animate-drift-2 { animation: drift-2 55s infinite ease-in-out reverse; }
                 .animate-orb-breath-1 { animation: orb-breath-1 3s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
                 .animate-orb-breath-2 { animation: orb-breath-2 3s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.4s; }
                 .animate-pulse-slow { animation: pulse-slow 8s ease-in-out infinite; }

@@ -10,17 +10,6 @@ import { SaveTemplateModal } from '../ui/SaveTemplateModal';
 import { ArrowDownTrayIcon } from '../icons/ArrowDownTrayIcon';
 import { ClipboardDocumentIcon } from '../icons/ClipboardDocumentIcon';
 import { ChevronDownIcon } from '../icons/ChevronDownIcon';
-import { BoldIcon } from '../icons/BoldIcon';
-import { ItalicIcon } from '../icons/ItalicIcon';
-import { ListBulletIcon } from '../icons/ListBulletIcon';
-import { UnderlineIcon } from '../icons/UnderlineIcon';
-import { StrikethroughIcon } from '../icons/StrikethroughIcon';
-import { ListOrderedIcon } from '../icons/ListOrderedIcon';
-import { ClearFormattingIcon } from '../icons/ClearFormattingIcon';
-import { ExplanationModal } from '../ui/ExplanationModal';
-import { LightBulbIcon } from '../icons/LightBulbIcon';
-import { CheckCircleIcon } from '../icons/CheckCircleIcon';
-import { Tooltip } from '../ui/Tooltip';
 import { CodeBracketIcon } from '../icons/CodeBracketIcon';
 import { TableCellsIcon } from '../icons/TableCellsIcon';
 import { DocumentTextIcon } from '../icons/DocumentTextIcon';
@@ -39,6 +28,10 @@ import html2canvas from 'html2canvas';
 import * as XLSX from 'xlsx';
 import { Notification } from '../ui/Notification';
 import { logAuditEvent, getAuditLog, generateApprovalStamp, ApprovalStamp } from '../../utils/auditLogger';
+import { LightBulbIcon } from '../icons/LightBulbIcon';
+import { ExplanationModal } from '../ui/ExplanationModal';
+import { CheckCircleIcon } from '../icons/CheckCircleIcon';
+import { Tooltip } from '../ui/Tooltip';
 
 interface CenterWorkspaceProps {
     data: ExtractedData;
@@ -57,12 +50,8 @@ const outputFormats: { id: OutputFormat; label: string; tooltip: string }[] = [
 ];
 
 const downloadOptions = [
-    { format: 'json', label: 'JSON File', description: 'Raw structured data', icon: CodeBracketIcon },
-    { format: 'xlsx', label: 'Excel (XLSX)', description: 'Formatted spreadsheet', icon: TableCellsIcon },
-    { format: 'csv', label: 'CSV Sheet', description: 'Comma separated values', icon: TableCellsIcon },
-    { format: 'txt', label: 'Report Text', description: 'Official text format', icon: DocumentTextIcon },
-    { format: 'pdf', label: 'PDF Report', description: 'Visual summary', icon: DocumentTextIcon },
-    { format: 'png', label: 'PNG Image', description: 'Screenshot of results', icon: PhotoIcon },
+    { format: 'pdf', label: 'PDF Document', description: 'Professional layout & summary', icon: DocumentTextIcon },
+    { format: 'json', label: 'JSON Data', description: 'Raw structured output', icon: CodeBracketIcon },
 ];
 
 const ConfidenceBadge: React.FC<{ score: number | undefined }> = ({ score }) => {
@@ -130,16 +119,16 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
     const [searchQuery, setSearchQuery] = useState('');
     const [showOnlyIssues, setShowOnlyIssues] = useState(false);
     
-    // Table Discovery State
+    // Table Discovery State using Adapter
     const [activeTableIndex, setActiveTableIndex] = useState(0);
-    const tables = useMemo(() => extractTables(editedData.data), [editedData.data]);
+    const tables = useMemo(() => extractTables(editedData), [editedData]);
 
     const tableRef = useRef<HTMLTableElement>(null);
     const editorRef = useRef<HTMLDivElement>(null);
     const downloadMenuRef = useRef<HTMLDivElement>(null);
     const resultsContentRef = useRef<HTMLDivElement>(null);
 
-    const validationResult = useMemo(() => validateDocumentLogic(editedData.data), [editedData.data]);
+    const validationResult = useMemo(() => validateDocumentLogic(flattenObject(editedData)), [editedData]);
     
     useClickOutside(downloadMenuRef, () => {
         if (isDownloadOpen) setIsDownloadOpen(false);
@@ -164,13 +153,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
     }, [data.highlights]);
 
     const handleKeyValueChange = (flattenedKey: string, value: string) => {
-        setEditedData(prev => {
-            const isArray = Array.isArray(prev.data);
-            const currentDataObj = isArray ? { ...prev.data[0] } : { ...prev.data };
-            const updatedObj = updateNestedState(currentDataObj, flattenedKey, value);
-            const finalData = isArray ? [updatedObj, ...prev.data.slice(1)] : updatedObj;
-            return { ...prev, data: finalData };
-        });
+        setEditedData(prev => updateNestedState(prev, flattenedKey, value));
         setEditedFields(prev => new Set(prev).add(flattenedKey));
         
         logAuditEvent('EDIT', settings.systemMode, {
@@ -190,10 +173,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
         const currentTable = tables[activeTableIndex];
         if (!currentTable) return;
 
-        setEditedData(prev => {
-            const newData = updateTableData(prev.data, currentTable.path, rowIndex, key, value);
-            return { ...prev, data: newData };
-        });
+        setEditedData(prev => updateTableData(prev, currentTable.path, rowIndex, key, value));
         const cellKey = `${currentTable.path || 'root'}-${rowIndex}-${key}`;
         setEditedFields(prev => new Set(prev).add(cellKey));
 
@@ -241,7 +221,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
     };
 
     const generateTextSummary = useCallback((dataToSummarize: ExtractedData, currentActiveField: string | null): string => {
-        const titleCase = (str: string) => str.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
         const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
         
         let html = `<div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.6; color: inherit;">`;
@@ -251,6 +230,11 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
         html += `<div style="opacity: 0.5; margin-bottom: 1em;">------------------------------------</div>`;
         html += `<div style="margin-bottom: 1.5em;">Date: ${dateStr}<br/>Confidence Score: ${dataToSummarize.confidenceScore}%</div>`;
 
+        // Render Raw Text Summary as intro
+        if (dataToSummarize.rawTextSummary) {
+             html += `<div style="margin-bottom: 1.5em; font-style: italic;">"${dataToSummarize.rawTextSummary}"</div>`;
+        }
+
         const createValueSpan = (key: string, val: any) => {
             const strVal = String(val);
             const isActive = currentActiveField === key;
@@ -258,57 +242,11 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
             return `<span data-field-name="${key}" style="${bgClass} cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: rgba(100,100,100,0.5);">${strVal}</span>`;
         };
 
-        const process = (obj: any, indentLevel: number = 0, pathPrefix: string = '') => {
-            const indent = "&nbsp;".repeat(indentLevel * 4);
-            
-            if (Array.isArray(obj)) {
-                obj.forEach((item, idx) => {
-                    if (typeof item === 'object' && item !== null) {
-                        html += `<div>${indent}${idx + 1}. <span style="font-weight:600;">Item #${idx + 1}</span></div>`;
-                        Object.entries(item).forEach(([k, v]) => {
-                            if (typeof v === 'object' && v !== null) {
-                                html += `<div>${indent}&nbsp;&nbsp;&nbsp;<span style="font-weight:600;">${titleCase(k)}:</span></div>`;
-                                process(v, indentLevel + 1, k);
-                            } else {
-                                html += `<div>${indent}&nbsp;&nbsp;&nbsp;${titleCase(k)}: ${createValueSpan(k, v)}</div>`;
-                            }
-                        });
-                    } else {
-                        html += `<div>${indent}${idx + 1}. ${createValueSpan(pathPrefix, item)}</div>`;
-                    }
-                });
-            } else if (typeof obj === 'object' && obj !== null) {
-                Object.entries(obj).forEach(([k, v]) => {
-                    const label = titleCase(k);
-                    if (Array.isArray(v)) {
-                        html += `<div style="margin-top: 1em; font-weight: 700;">${indent}${label}</div>`;
-                        html += `<div>${indent}${"-".repeat(label.length)}</div>`;
-                        process(v, indentLevel);
-                    } else if (typeof v === 'object' && v !== null) {
-                        html += `<div style="margin-top: 0.5em; font-weight: 600;">${indent}${label}</div>`;
-                        process(v, indentLevel + 1);
-                    } else {
-                        if (k.toLowerCase().includes('note')) {
-                            html += `<div>${indent}<strong>Note:</strong></div>`;
-                            html += `<div>${indent}&nbsp;&nbsp;${createValueSpan(k, v)}</div>`;
-                        } else {
-                            html += `<div>${indent}${label}: ${createValueSpan(k, v)}</div>`;
-                        }
-                    }
-                });
-            }
-        };
-
-        if (Array.isArray(dataToSummarize.data)) {
-            dataToSummarize.data.forEach((d, i) => {
-                html += `<div style="margin-top: 1em; font-weight: 800;">RECORD #${i + 1}</div>`;
-                html += `<div>================</div>`;
-                process(d);
-                html += `<br/>`;
-            });
-        } else {
-            process(dataToSummarize.data);
-        }
+        const kvData = flattenObject(dataToSummarize);
+        
+        Object.entries(kvData).forEach(([k, v]) => {
+             html += `<div><strong>${k}:</strong> ${createValueSpan(k, v)}</div>`;
+        });
 
         html += `<div style="margin-top: 2em; opacity: 0.5;">------------------------------------</div>`;
         html += `<div>End of Report</div></div>`;
@@ -356,6 +294,150 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
             setIsExplanationLoading(false);
         }
     }, [summary, file]);
+
+    const exportTableToCSV = (table: DiscoveredTable) => {
+        if (!table.data || table.data.length === 0) return;
+        const headers = Object.keys(table.data[0]);
+        const rows = table.data.map(row => headers.map(header => {
+            const val = row[header];
+            // Handle commas and quotes in CSV
+            const str = String(val ?? '').replace(/"/g, '""');
+            return `"${str}"`;
+        }).join(','));
+        
+        const csvContent = [headers.join(','), ...rows].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${table.name || 'table'}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handleDownload = async (format: string) => {
+        setIsDownloadOpen(false);
+        const fileName = `extraction_${data.documentType.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`;
+
+        switch (format) {
+            case 'json': {
+                const jsonContent = JSON.stringify({ 
+                    meta: data.meta, 
+                    data: editedData.structuredData, 
+                    auditLog: getAuditLog() 
+                }, null, 2);
+                const blob = new Blob([jsonContent], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${fileName}.json`;
+                link.click();
+                break;
+            }
+            case 'txt': {
+                const txt = formatAsOfficialDocument(editedData);
+                const blob = new Blob([txt], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${fileName}.txt`;
+                link.click();
+                break;
+            }
+            case 'csv': {
+                const flattened = flattenObject(editedData);
+                const csvRows = [['Field', 'Value']];
+                Object.entries(flattened).forEach(([k, v]) => {
+                     csvRows.push([k, String(v).replace(/"/g, '""')]);
+                });
+                const csvContent = csvRows.map(e => `"${e[0]}","${e[1]}"`).join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${fileName}.csv`;
+                link.click();
+                break;
+            }
+            case 'xlsx': {
+                 const wb = XLSX.utils.book_new();
+                 const flattened = flattenObject(editedData);
+                 const kvData = Object.entries(flattened).map(([Key, Value]) => ({ Key, Value: String(Value) }));
+                 const wsKV = XLSX.utils.json_to_sheet(kvData);
+                 XLSX.utils.book_append_sheet(wb, wsKV, "Summary");
+
+                 tables.forEach((table, i) => {
+                     if (table.data.length > 0) {
+                        const wsTable = XLSX.utils.json_to_sheet(prepareDataForTable(table.data));
+                        XLSX.utils.book_append_sheet(wb, wsTable, table.name.substring(0, 31) || `Table ${i+1}`);
+                     }
+                 });
+
+                 XLSX.writeFile(wb, `${fileName}.xlsx`);
+                 break;
+            }
+            case 'pdf': {
+                 const doc = new jsPDF();
+                 doc.setFontSize(16);
+                 doc.text(data.documentType, 14, 20);
+                 doc.setFontSize(10);
+                 doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 28);
+                 doc.text(`Confidence: ${data.confidenceScore}%`, 14, 33);
+                 
+                 let y = 45;
+                 
+                 tables.forEach((table) => {
+                     if (table.data.length > 0) {
+                         doc.setFontSize(12);
+                         doc.text(table.name, 14, y);
+                         y += 5;
+                         
+                         const headers = Object.keys(table.data[0]);
+                         const body = table.data.map(row => Object.values(row).map(v => String(v)));
+                         
+                         autoTable(doc, {
+                             startY: y,
+                             head: [headers],
+                             body: body,
+                             margin: { top: 10 },
+                             styles: { fontSize: 8 },
+                         });
+                         
+                         // @ts-ignore
+                         y = doc.lastAutoTable.finalY + 15;
+                     }
+                 });
+
+                 if (tables.length === 0) {
+                     const splitText = doc.splitTextToSize(formatAsOfficialDocument(editedData), 180);
+                     doc.text(splitText, 14, y);
+                 }
+
+                 doc.save(`${fileName}.pdf`);
+                 break;
+            }
+            case 'png': {
+                 if (resultsContentRef.current) {
+                     const originalOverflow = resultsContentRef.current.style.overflow;
+                     resultsContentRef.current.style.overflow = 'visible';
+                     
+                     const canvas = await html2canvas(resultsContentRef.current, {
+                         backgroundColor: settings.highContrast ? '#000000' : '#ffffff',
+                         scale: 2
+                     });
+                     
+                     resultsContentRef.current.style.overflow = originalOverflow;
+                     
+                     const link = document.createElement('a');
+                     link.download = `${fileName}.png`;
+                     link.href = canvas.toDataURL();
+                     link.click();
+                 }
+                 break;
+            }
+        }
+    };
 
     useEffect(() => {
         setEditedData(data);
@@ -415,170 +497,20 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                 return JSON.stringify({ 
                     _meta: meta, 
                     _approval: approvalStamp, 
-                    data: editedData.data 
+                    data: editedData.structuredData 
                 }, null, 2);
             case 'text': 
                 return formatAsOfficialDocument(editedData);
             default: 
-                return JSON.stringify({ _meta: meta, data: editedData.data }, null, 2);
+                return JSON.stringify({ _meta: meta, data: editedData.structuredData }, null, 2);
         }
     }, [activeFormat, editedData, approvalStamp]);
 
-    const handleDownload = useCallback(async (format: string) => {
-        if (settings.systemMode === 'ENTERPRISE' && !isApproved) {
-            setNotification({ message: "Approval required before export in Enterprise Mode.", type: 'error' });
-            return;
-        }
-        if (settings.systemMode === 'ENTERPRISE' && validationResult.issues.some(i => i.severity === 'error')) {
-            setNotification({ message: "Resolve critical validation errors before exporting.", type: 'error' });
-            return;
-        }
+    const isSearchable = activeFormat === 'key_value' || activeFormat === 'grid';
 
-        setIsDownloadOpen(false);
-        setNotification({ message: `Exporting as ${format.toUpperCase()}...`, type: 'info' });
-        
-        logAuditEvent('EXPORT', settings.systemMode, { format, documentType: data.documentType });
-
-        const baseFileName = file.file.name.split('.').slice(0, -1).join('.') || 'export';
-        const fileName = `${baseFileName}.${format}`;
-
-        const downloadBlob = (blob: Blob, name: string) => {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        };
-
-        const dataToExport = editedData.data;
-
-        try {
-            switch (format) {
-                case 'json': {
-                    const jsonOutput = {
-                        _meta: { source: "DataExtract AI", generatedAt: new Date().toISOString() },
-                        _approval: approvalStamp,
-                        _auditLog: settings.systemMode === 'ENTERPRISE' ? getAuditLog() : undefined,
-                        data: dataToExport
-                    };
-                    const jsonString = JSON.stringify(jsonOutput, null, 2);
-                    const blob = new Blob([jsonString], { type: 'application/json' });
-                    downloadBlob(blob, fileName);
-                    break;
-                }
-                case 'txt': {
-                    const txtContent = formatAsOfficialDocument(editedData);
-                    const blob = new Blob([txtContent], { type: 'text/plain;charset=utf-8;' });
-                    downloadBlob(blob, fileName);
-                    break;
-                }
-                case 'csv': {
-                    const flattenedData = prepareDataForTable(Array.isArray(dataToExport) ? dataToExport : [dataToExport]);
-                    const ws = XLSX.utils.json_to_sheet(flattenedData);
-                    const csvOutput = XLSX.utils.sheet_to_csv(ws);
-                    let finalCsv = `${csvOutput}\n\n${WATERMARK_TEXT}`;
-                    if (approvalStamp) finalCsv += `\nApproved: ${approvalStamp.approvedAt}`;
-                    const blob = new Blob([finalCsv], { type: 'text/csv;charset=utf-8;' });
-                    downloadBlob(blob, fileName);
-                    break;
-                }
-                case 'xlsx': {
-                    const flattenedData = prepareDataForTable(Array.isArray(dataToExport) ? dataToExport : [dataToExport]);
-                    const ws = XLSX.utils.json_to_sheet(flattenedData);
-                    const range = XLSX.utils.decode_range(ws['!ref'] || "A1");
-                    let watermarkRow = range.e.r + 2; 
-                    XLSX.utils.sheet_add_aoa(ws, [[WATERMARK_TEXT]], { origin: { r: watermarkRow, c: 0 } });
-                    if (approvalStamp) {
-                        XLSX.utils.sheet_add_aoa(ws, [[`Approved: ${approvalStamp.approvedAt}`]], { origin: { r: watermarkRow + 1, c: 0 } });
-                    }
-                    const wb = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wb, ws, "Data");
-                    XLSX.writeFile(wb, fileName);
-                    break;
-                }
-                case 'pdf': {
-                    const doc = new jsPDF();
-                    doc.setFontSize(18);
-                    doc.text(`Report: ${editedData.documentType}`, 14, 22);
-                    doc.setFontSize(11);
-                    doc.setTextColor(100);
-                    doc.text(`Source: ${file.file.name}`, 14, 30);
-
-                    const flattenedData = prepareDataForTable(Array.isArray(dataToExport) ? dataToExport : [dataToExport]);
-                    if (flattenedData.length > 0) {
-                        const headers = Object.keys(flattenedData[0]);
-                        if (flattenedData.length === 1 && !Array.isArray(dataToExport)) {
-                             const rows = Object.entries(flattenedData[0]);
-                             autoTable(doc, { startY: 40, head: [['Field', 'Value']], body: rows });
-                        } else {
-                            autoTable(doc, { startY: 40, head: [headers], body: flattenedData.map((row: any) => Object.values(row)) });
-                        }
-                    }
-                    
-                    const pageCount = doc.getNumberOfPages();
-                    doc.setFontSize(8);
-                    doc.setTextColor(150);
-                    const pageWidth = doc.internal.pageSize.getWidth();
-                    const pageHeight = doc.internal.pageSize.getHeight();
-                    const footerText = approvalStamp ? `${WATERMARK_TEXT} | Approved: ${approvalStamp.approvedBy}` : WATERMARK_TEXT;
-
-                    for (let i = 1; i <= pageCount; i++) {
-                        doc.setPage(i);
-                        doc.text(footerText, pageWidth - 10, pageHeight - 10, { align: 'right' });
-                    }
-                    doc.save(fileName);
-                    break;
-                }
-                case 'png': {
-                    const captureRef = resultsContentRef;
-                    if (captureRef.current) {
-                        const canvas = await html2canvas(captureRef.current, { backgroundColor: settings.darkMode ? '#1C1C1E' : '#F9FAFC' });
-                        const dataUrl = canvas.toDataURL('image/png');
-                        const a = document.createElement('a');
-                        a.href = dataUrl;
-                        a.download = fileName;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                    }
-                    break;
-                }
-            }
-            if (format !== 'xlsx') setNotification({ message: "File downloaded successfully!", type: 'success' });
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "An unknown error occurred during export.";
-            setNotification({ message: `Export failed: ${message}`, type: 'error' });
-        }
-    }, [editedData, file, settings.darkMode, approvalStamp, settings.systemMode, isApproved, validationResult.issues]);
-
-    const exportTableToCSV = (table: DiscoveredTable) => {
-        try {
-            const flattenedData = prepareDataForTable(table.data);
-            const ws = XLSX.utils.json_to_sheet(flattenedData);
-            const csvOutput = XLSX.utils.sheet_to_csv(ws);
-            let finalCsv = `${csvOutput}\n\n${WATERMARK_TEXT}`;
-            if (approvalStamp) finalCsv += `\nApproved: ${approvalStamp.approvedAt}`;
-            const blob = new Blob([finalCsv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${table.name.replace(/\s+/g, '_')}_export.csv`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            setNotification({ message: `Downloaded ${table.name} as CSV`, type: 'success' });
-        } catch (e) {
-            setNotification({ message: "Failed to export table", type: 'error' });
-        }
-    };
-
-    const renderData = (format: OutputFormat, dataToRender: any) => {
+    const renderData = (format: OutputFormat, dataToRender: ExtractedData) => {
         switch (format) {
-            case 'json': return <div className="p-6 h-full overflow-auto"><pre className="text-sm font-mono text-gray-800 dark:text-gray-300">{JSON.stringify(dataToRender, null, 2)}</pre></div>;
+            case 'json': return <div className="p-6 h-full overflow-auto"><pre className="text-sm font-mono text-gray-800 dark:text-gray-300">{JSON.stringify(dataToRender.structuredData, null, 2)}</pre></div>;
             case 'text': return (
                 <div className="flex flex-col h-full bg-white dark:bg-zinc-900 relative">
                     <div 
@@ -594,8 +526,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                 </div>
             );
             case 'key_value':
-                const rawObj = Array.isArray(dataToRender) ? dataToRender[0] : dataToRender;
-                const kvData = flattenObject(rawObj || {});
+                const kvData = flattenObject(dataToRender);
                 const entries = Object.entries(kvData);
                 const filteredEntries = entries.filter(([key, value]) => {
                     if (searchQuery) {
@@ -625,14 +556,14 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                             </div>
                         )}
                         {filteredEntries.map(([key, value]) => {
-                             const rootKey = key.split(' > ')[0].toLowerCase();
-                             const score = confidenceMap.get(rootKey) || confidenceMap.get(key); 
+                             const rootKey = key.split(' > ').pop()?.toLowerCase() || '';
+                             const score = confidenceMap.get(key) || confidenceMap.get(rootKey); 
                              const isLowConfidence = score !== undefined && score < 90;
                              const isVeryLowConfidence = score !== undefined && score < 80;
                              const logicIssue = validationResult.issues.find(issue => issue.involvedKeys.some(k => key.toLowerCase().includes(k.toLowerCase())));
                              const isLogicIssue = !!logicIssue;
                              const issueColorClass = logicIssue?.severity === 'error' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/30' : 'bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-900/30';
-                             const isListSummary = typeof value === 'string' && value.startsWith('[Table/List:');
+                             const isListSummary = typeof value === 'string' && (value.startsWith('[Table') || value.startsWith('[List'));
 
                              return (
                                 <div key={key} className={`flex items-center justify-between p-3 rounded-2xl border transition-all group ${activeField === key ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-black/5 dark:border-white/5'} ${isLogicIssue ? issueColorClass : (isLowConfidence ? 'bg-amber-50 dark:bg-amber-500/10' : 'bg-gray-50/50 dark:bg-zinc-800/50')}`}>
@@ -677,9 +608,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                         const q = searchQuery.toLowerCase();
                         if (!Object.values(row).some(v => String(v).toLowerCase().includes(q))) return false;
                     }
-                    if (showOnlyIssues) {
-                        return keys.some(k => validationResult.issues.some(issue => (issue.rowIndex === undefined || issue.rowIndex === i) && issue.involvedKeys.some(ik => k.toLowerCase().includes(ik.toLowerCase()))));
-                    }
                     return true;
                 });
                 if (filteredRows.length === 0) return <div className="p-12 text-center text-gray-500 font-medium">No matching rows found.</div>;
@@ -702,15 +630,10 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                                     {filteredRows.map((row: any, i: number) => (
                                         <tr key={i} className="border-b border-black/5 dark:border-white/5 hover:bg-gray-50/50 dark:hover:bg-white/5">
                                             {keys.map(k => {
-                                                const score = confidenceMap.get(k);
-                                                const isLow = score !== undefined && score < 90;
-                                                const issue = validationResult.issues.find(issue => (issue.rowIndex === undefined || issue.rowIndex === i) && issue.involvedKeys.some(ik => k.toLowerCase().includes(ik.toLowerCase())));
-                                                const hasIssue = !!issue;
-                                                const issueStyle = issue?.severity === 'error' ? 'bg-red-50 dark:bg-red-900/20 ring-1 ring-red-500/50 inset-0' : 'bg-orange-50 dark:bg-orange-900/20 ring-1 ring-orange-500/50 inset-0';
+                                                // Confidence handling needs update based on new structure, currently simplified
                                                 return (
-                                                    <td key={k} className={`p-2 text-sm relative ${hasIssue ? issueStyle : ''} ${!hasIssue && isLow ? 'bg-amber-50/30 dark:bg-amber-500/5' : ''}`}>
+                                                    <td key={k} className={`p-2 text-sm relative`}>
                                                         <div className="flex items-center gap-1 group/cell">
-                                                            {hasIssue && <Tooltip text={issue?.message}><ExclamationTriangleIcon className={`w-3.5 h-3.5 flex-shrink-0 ${issue?.severity === 'error' ? 'text-red-500' : 'text-orange-500'}`} /></Tooltip>}
                                                             <div className="flex-1 min-w-0">
                                                                 <EditableInput value={String(row[k] ?? '')} onChange={(e) => handleGridChange(i, k, e.target.value)} onBlur={(e) => handleInputBlur(k, e.target.value, i)} onFocus={() => { setActiveField(k); setShowSplitView(true); }} label={k} isActive={activeField === k} isEdited={editedFields.has(`${currentTable.path || 'root'}-${i}-${k}`)} />
                                                             </div>
@@ -730,8 +653,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
         }
     };
 
-    const isSearchable = activeFormat === 'key_value' || activeFormat === 'grid';
-
     return (
         <div className="flex flex-col h-full w-full">
             {notification && <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
@@ -746,18 +667,33 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                         <p className="text-xs font-bold text-[#5856D6] dark:text-[#AF52DE] uppercase tracking-widest">{data.documentType}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                         {isSearchable && validationResult.issues.length > 0 && (
-                            <button onClick={() => setShowOnlyIssues(!showOnlyIssues)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showOnlyIssues ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800' : 'bg-black/5 dark:bg-white/5 text-gray-500 dark:text-gray-400 hover:bg-black/10 border-transparent'}`}>
-                                <ShieldCheckIcon className={`w-3.5 h-3.5 ${showOnlyIssues ? 'text-red-500' : ''}`} />
-                                <span>{showOnlyIssues ? 'Showing Issues' : `${validationResult.issues.length} Issues`}</span>
-                            </button>
-                        )}
                          {isSearchable && (
-                            <div className="relative group/search">
-                                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within/search:text-blue-500 transition-colors" />
-                                <input type="text" placeholder="Search fields..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 pr-8 py-1.5 text-sm bg-gray-100 dark:bg-zinc-800 border-transparent focus:bg-white dark:focus:bg-black border focus:border-blue-500 rounded-lg outline-none transition-all w-48 focus:w-64 text-gray-800 dark:text-gray-200 placeholder-gray-500" />
-                                {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/10"><XMarkIcon className="w-3.5 h-3.5" /></button>}
-                            </div>
+                            <>
+                                {validationResult.issues.length > 0 && activeFormat === 'key_value' && (
+                                    <button 
+                                        onClick={() => setShowOnlyIssues(!showOnlyIssues)} 
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showOnlyIssues ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800' : 'bg-black/5 dark:bg-white/5 text-gray-500 dark:text-gray-400 hover:bg-black/10 border-transparent'}`}
+                                    >
+                                        <ShieldCheckIcon className={`w-3.5 h-3.5 ${showOnlyIssues ? 'text-red-500' : ''}`} />
+                                        <span>{showOnlyIssues ? 'Showing Issues' : `${validationResult.issues.length} Issues`}</span>
+                                    </button>
+                                )}
+                                <div className="relative group/search">
+                                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within/search:text-blue-500 transition-colors" />
+                                    <input 
+                                        type="text" 
+                                        placeholder="Search fields..." 
+                                        value={searchQuery} 
+                                        onChange={(e) => setSearchQuery(e.target.value)} 
+                                        className="pl-9 pr-8 py-1.5 text-sm bg-gray-100 dark:bg-zinc-800 border-transparent focus:bg-white dark:focus:bg-black border focus:border-blue-500 rounded-lg outline-none transition-all w-48 focus:w-64 text-gray-800 dark:text-gray-200 placeholder-gray-500" 
+                                    />
+                                    {searchQuery && (
+                                        <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/10">
+                                            <XMarkIcon className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                            </>
                         )}
                         {file.file.type.startsWith('image/') && (
                              <Tooltip text={showSplitView ? "Close Split View" : "Review with Split View"}>
@@ -794,7 +730,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                         {/* Tab Content with Fade Transition */}
                         <div className="border border-black/5 dark:border-white/5 rounded-2xl overflow-hidden min-h-[400px] bg-white/40 dark:bg-zinc-800/40 backdrop-blur-sm">
                            <div key={activeFormat} className="h-full w-full animate-fade-in">
-                                {renderData(activeFormat, editedData.data)}
+                                {renderData(activeFormat, editedData)}
                            </div>
                         </div>
 
@@ -837,25 +773,25 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                                 </Tooltip>
                                 
                                 <div ref={downloadMenuRef} className="relative w-full sm:flex-1 min-w-[140px]">
-                                    <Tooltip text="Save as local file" position="top">
+                                    <Tooltip text="Save as file" position="top">
                                         <button onClick={() => setIsDownloadOpen(p => !p)} className={`w-full flex items-center justify-center gap-2.5 py-3.5 px-6 font-bold rounded-[2rem] transition-all border ${isDownloadOpen ? 'bg-white text-[#007AFF] border-[#007AFF] shadow-glow-blue-strong' : 'bg-[#007AFF] text-white border-transparent hover:shadow-glow-blue-strong active:scale-95'}`}>
                                             <ArrowDownTrayIcon className="w-5 h-5"/> Download
                                             <ChevronDownIcon className={`w-4 h-4 transition-transform duration-300 ${isDownloadOpen ? 'rotate-180' : ''}`} />
                                         </button>
                                     </Tooltip>
                                     
-                                    <div className={`absolute bottom-full mb-4 left-1/2 -translate-x-1/2 w-80 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-2xl rounded-3xl shadow-[0_20px_40px_-10px_rgba(0,0,0,0.2)] border border-white/20 dark:border-white/10 p-2 z-50 transition-all duration-300 ease-out origin-bottom ${isDownloadOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
+                                    <div className={`absolute bottom-full mb-4 left-1/2 -translate-x-1/2 w-72 bg-white/80 dark:bg-[#1C1C1E]/80 backdrop-blur-3xl rounded-3xl shadow-[0_0_40px_-10px_rgba(0,0,0,0.2)] border border-white/20 dark:border-white/10 p-2 z-50 transition-all duration-300 cubic-bezier(0.32, 0.72, 0, 1) origin-bottom ${isDownloadOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
                                         <div className="px-4 py-3 border-b border-black/5 dark:border-white/5 mb-1">
-                                            <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">Select Format</h3>
+                                            <h3 className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest text-center">Select Format</h3>
                                         </div>
-                                        <div className="space-y-1 p-1 max-h-[300px] overflow-y-auto ios-scroll">
+                                        <div className="space-y-1 p-1">
                                             {downloadOptions.map(({ format, label, description, icon: Icon }) => (
-                                                <button key={format} onClick={() => handleDownload(format)} className="w-full flex items-center gap-4 text-left p-3 hover:bg-blue-50 dark:hover:bg-white/5 rounded-2xl transition-all group/item border border-transparent hover:border-blue-500/10">
-                                                    <div className="w-10 h-10 rounded-full bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 group-hover/item:bg-blue-500 group-hover/item:text-white transition-colors">
+                                                <button key={format} onClick={() => handleDownload(format)} className="w-full flex items-center gap-4 text-left p-3.5 hover:bg-white dark:hover:bg-white/10 rounded-2xl transition-all group/item border border-transparent hover:shadow-sm">
+                                                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center text-[#007AFF] dark:text-[#0A84FF] group-hover/item:scale-110 transition-transform duration-300">
                                                         <Icon className="w-5 h-5" />
                                                     </div>
                                                     <div>
-                                                        <p className="font-bold text-sm text-gray-800 dark:text-gray-100">{label}</p>
+                                                        <p className="font-bold text-sm text-gray-900 dark:text-white">{label}</p>
                                                         <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{description}</p>
                                                     </div>
                                                 </button>

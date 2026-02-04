@@ -14,10 +14,57 @@ export interface Highlight {
     confidence: number;
 }
 
+export interface ExtractedField {
+    value: string | number | boolean | null;
+    confidence: number;
+    boundingBox?: [number, number, number, number];
+    label?: string;
+}
+
+export interface ExtractedSection {
+    heading: string;
+    content: {
+        label: string;
+        value: string | number | boolean | null;
+        confidence: number;
+        boundingBox?: [number, number, number, number];
+    }[];
+}
+
+export interface ExtractedTable {
+    tableName: string;
+    headers: string[];
+    rows: Record<string, ExtractedField>[];
+}
+
 export interface ExtractedData {
-    documentType: string;
-    confidenceScore: number;
-    data: Record<string, any> | Array<Record<string, any>>;
+    documentType: string; // Mapped from meta.contentType
+    confidenceScore: number; // Aggregate or meta confidence
+    
+    // New Schema Root
+    meta: {
+        contentType: string;
+        detectedLanguage: string;
+        hasImages: boolean;
+        hasTables: boolean;
+        hasHandwriting: boolean;
+    };
+    
+    structuredData: {
+        title: ExtractedField;
+        sections: ExtractedSection[];
+        tables: ExtractedTable[];
+    };
+
+    imageAnalysis: {
+        objectsDetected: { objectName: string; description: string; confidence: number }[];
+        extractedText: { text: string; confidence: number }[];
+    } | null;
+
+    rawTextSummary: string;
+
+    // Legacy/UI Compatibility
+    data: any; // Mapped view for backward compatibility (e.g., flat KV)
     highlights?: Highlight[];
 }
 
