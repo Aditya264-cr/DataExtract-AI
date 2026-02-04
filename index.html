@@ -1,0 +1,219 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>DataExtract AI</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sora:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Base Styles -->
+  <style>
+    :root {
+      /* Premium iOS Palettes */
+      --background-rgb: 248, 250, 252; /* Slate-50 */
+      --text-primary: #1d1d1f;
+      --text-secondary: #86868b;
+      
+      /* Glass Vars - Updated for subtle native feel */
+      --glass-border: rgba(255, 255, 255, 0.4);
+      --glass-surface: rgba(255, 255, 255, 0.55);
+      --glass-highlight: rgba(255, 255, 255, 0.8);
+      --glass-blur: 20px;
+      
+      --font-display: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    html.dark {
+      --background-rgb: 2, 6, 23; /* Slate-950 */
+      --text-primary: #f5f5f7;
+      --text-secondary: #86868b;
+      
+      /* Dark Glass Vars */
+      --glass-border: rgba(255, 255, 255, 0.12);
+      --glass-surface: rgba(30, 30, 32, 0.60);
+      --glass-highlight: rgba(255, 255, 255, 0.15);
+    }
+
+    body {
+      font-family: var(--font-body);
+      color: var(--text-primary);
+      margin: 0;
+      padding: 0;
+      overflow: hidden; /* App handles scrolling */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background-color: rgb(var(--background-rgb));
+      transition: background-color 0.3s ease;
+    }
+
+    /* Animation Keyframes for Blobs */
+    @keyframes pulse-blob-1 {
+      0% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
+      50% { transform: translate(-55%, -45%) scale(1.1); opacity: 0.6; }
+      100% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
+    }
+
+    @keyframes pulse-blob-2 {
+      0% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
+      50% { transform: translate(-45%, -55%) scale(1.2); opacity: 0.5; }
+      100% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
+    }
+    
+    /* Blob 1: Blue, Center-Left */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 50%;
+      left: 20%;
+      width: 80vw;
+      height: 80vw;
+      max-width: 1000px;
+      max-height: 1000px;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 60%);
+      border-radius: 50%;
+      filter: blur(80px);
+      z-index: -2;
+      transform: translate(-50%, -50%);
+      animation: pulse-blob-1 20s infinite ease-in-out;
+    }
+
+    /* Blob 2: Violet, Center-Right */
+    body::after {
+      content: '';
+      position: fixed;
+      top: 50%;
+      left: 80%;
+      width: 80vw;
+      height: 80vw;
+      max-width: 1000px;
+      max-height: 1000px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, transparent 60%);
+      border-radius: 50%;
+      filter: blur(80px);
+      z-index: -2;
+      transform: translate(-50%, -50%);
+      animation: pulse-blob-2 25s infinite ease-in-out reverse;
+    }
+
+    /* Dark Mode Blob Adjustments */
+    html.dark body::before {
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 60%);
+    }
+    html.dark body::after {
+       background: radial-gradient(circle, rgba(139, 92, 246, 0.1) 0%, transparent 60%);
+    }
+
+    h1, h2, h3, h4, .font-display {
+      font-family: var(--font-display);
+      letter-spacing: -0.025em;
+    }
+
+    /* Scrollbar Styling */
+    .ios-scroll {
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(150,150,150,0.3) transparent;
+    }
+    .ios-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .ios-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .ios-scroll::-webkit-scrollbar-thumb {
+      background-color: rgba(150,150,150,0.3);
+      border-radius: 20px;
+    }
+
+    /* Custom Utilities for Glassmorphism */
+    .glass-panel {
+      background: var(--glass-surface);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.04);
+    }
+    
+    .glass-card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.2) 100%);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid rgba(255,255,255,0.5);
+      box-shadow: 0 4px 24px -1px rgba(0,0,0,0.04);
+    }
+    html.dark .glass-card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 4px 24px -1px rgba(0,0,0,0.2);
+    }
+
+    .shadow-glow-blue-strong {
+      box-shadow: 0 0 30px rgba(0, 122, 255, 0.25);
+    }
+
+    /* Animations */
+    @keyframes fade-in-up {
+      from { opacity: 0; transform: translateY(15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-slide-in {
+      animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 15px rgba(0, 122, 255, 0.1); }
+      50% { box-shadow: 0 0 25px rgba(0, 122, 255, 0.3); }
+    }
+    .animate-pulse-glow {
+      animation: pulse-glow 3s infinite;
+    }
+
+    /* Tooltip Animations */
+    @keyframes tooltip-slide-top { from { opacity: 0; transform: translate(-50%, 4px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    .tooltip-anim-top { animation: tooltip-slide-top 0.2s ease-out forwards; }
+    @keyframes tooltip-slide-bottom { from { opacity: 0; transform: translate(-50%, -4px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    .tooltip-anim-bottom { animation: tooltip-slide-bottom 0.2s ease-out forwards; }
+    @keyframes tooltip-slide-left { from { opacity: 0; transform: translate(4px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
+    .tooltip-anim-left { animation: tooltip-slide-left 0.2s ease-out forwards; }
+    @keyframes tooltip-slide-right { from { opacity: 0; transform: translate(-4px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
+    .tooltip-anim-right { animation: tooltip-slide-right 0.2s ease-out forwards; }
+
+  </style>
+
+  <!-- Import Maps -->
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19",
+    "react-dom": "https://esm.sh/react-dom@19",
+    "react-dom/client": "https://esm.sh/react-dom@19/client",
+    "@google/genai": "https://esm.sh/@google/genai@1.38.0",
+    "jspdf": "https://esm.sh/jspdf@2.5.1",
+    "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.8.2",
+    "html2canvas": "https://esm.sh/html2canvas@1.4.1",
+    "xlsx": "https://esm.sh/xlsx@0.18.5",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/"
+  }
+}
+</script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <div id="overlay-root"></div>
+
+  <!-- React App -->
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

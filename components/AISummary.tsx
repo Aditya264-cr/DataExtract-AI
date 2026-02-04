@@ -1,0 +1,135 @@
+
+import React, { useState, useCallback } from 'react';
+import type { AISummaryData } from '../types';
+import { SparklesIcon } from './icons/SparklesIcon';
+import { ClipboardDocumentIcon } from './icons/ClipboardDocumentIcon';
+import { ArrowPathIcon } from './icons/ArrowPathIcon';
+import { LightBulbIcon } from './icons/LightBulbIcon';
+import { Tooltip } from './ui/Tooltip';
+
+interface AISummaryProps {
+    summary: AISummaryData | null;
+    loading: boolean;
+    onRegenerate: () => void;
+    onExplain: () => void;
+}
+
+const CONFIDENCE_THRESHOLD = 75;
+
+export const AISummary: React.FC<AISummaryProps> = ({ summary, loading, onRegenerate, onExplain }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = useCallback(() => {
+        if (summary?.summary) {
+            navigator.clipboard.writeText(summary.summary).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            });
+        }
+    }, [summary]);
+
+    const getConfidenceBadge = (score: number) => {
+        let bgColor = 'bg-gray-200/50 dark:bg-zinc-700/50';
+        let textColor = 'text-gray-600 dark:text-gray-400';
+        let dotColor = 'bg-gray-400';
+
+        if (score >= 75) {
+            bgColor = 'bg-green-100/50 dark:bg-green-500/10';
+            textColor = 'text-green-700 dark:text-green-400';
+            dotColor = 'bg-green-500';
+        } else if (score >= 40) {
+            bgColor = 'bg-orange-100/50 dark:bg-orange-500/10';
+            textColor = 'text-orange-700 dark:text-orange-400';
+            dotColor = 'bg-orange-500';
+        } else {
+            bgColor = 'bg-red-100/50 dark:bg-red-500/10';
+            textColor = 'text-red-700 dark:text-red-400';
+            dotColor = 'bg-red-500';
+        }
+
+        return (
+            <span className={`inline-flex items-center gap-1.5 ml-3 text-[10px] font-bold px-2 py-0.5 rounded-full ${bgColor} ${textColor} border border-current/10 tracking-tight uppercase`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`}></span>
+                {score}% Reliable
+            </span>
+        );
+    };
+
+    const renderContent = () => {
+        if (loading) {
+            return (
+                <div className="space-y-3 animate-pulse mt-3">
+                    <div className="h-3.5 bg-gray-300/30 dark:bg-zinc-700/30 rounded-full w-4/5"></div>
+                    <div className="h-3.5 bg-gray-300/30 dark:bg-zinc-700/30 rounded-full w-full"></div>
+                    <div className="h-3.5 bg-gray-300/30 dark:bg-zinc-700/30 rounded-full w-2/3"></div>
+                </div>
+            );
+        }
+        return (
+            <p className="text-[#1A1A1E] dark:text-[#F2F2F7] leading-[1.6] mt-4 text-[15px] font-medium font-body opacity-90">
+                {summary?.summary}
+            </p>
+        );
+    };
+    
+    const showRegenerateButton = !loading && summary && summary.confidenceScore < CONFIDENCE_THRESHOLD;
+
+    return (
+        <div className="w-full p-6 rounded-[24px] bg-white/40 dark:bg-zinc-800/20 backdrop-blur-3xl border border-white/60 dark:border-white/5 shadow-glass transition-all duration-500 hover:shadow-2xl hover:bg-white/50 dark:hover:bg-zinc-800/30 group">
+            <div className="flex justify-between items-center">
+                <div className="flex items-center">
+                    <div className="p-2 bg-[#007AFF]/10 rounded-xl">
+                        <SparklesIcon className="w-4 h-4 text-[#007AFF]" />
+                    </div>
+                    <h3 className="text-[13px] font-bold text-gray-400 dark:text-zinc-500 uppercase tracking-[0.15em] ml-3 font-display">
+                        AI Intelligent Summary
+                    </h3>
+                    {!loading && summary && getConfidenceBadge(summary.confidenceScore)}
+                </div>
+                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    {!loading && summary?.summary && (
+                        <Tooltip text="Explain generation logic">
+                            <button
+                                onClick={onExplain}
+                                className="p-2 rounded-xl text-gray-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-[#007AFF] transition-all"
+                                title="Explain this summary"
+                            >
+                                <LightBulbIcon className="w-4 h-4" />
+                            </button>
+                        </Tooltip>
+                    )}
+                    <Tooltip text={copied ? 'Copied!' : 'Copy summary to clipboard'}>
+                        <button
+                            onClick={handleCopy}
+                            disabled={loading || !summary?.summary}
+                            className="p-2 rounded-xl text-gray-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-[#007AFF] transition-all disabled:opacity-30 flex-shrink-0"
+                            title={copied ? 'Copied!' : 'Copy summary'}
+                        >
+                            <ClipboardDocumentIcon className="w-4 h-4" />
+                        </button>
+                    </Tooltip>
+                </div>
+            </div>
+
+            {renderContent()}
+
+            {showRegenerateButton && (
+                <div className="mt-6 pt-5 border-t border-black/[0.03] dark:border-white/[0.03] flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-orange-600 dark:text-orange-400/80 uppercase tracking-wider">
+                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                        Low Confidence Detected
+                    </div>
+                    <Tooltip text="Rerun with deeper analysis">
+                        <button
+                            onClick={onRegenerate}
+                            className="text-[12px] font-bold text-[#007AFF] hover:bg-[#007AFF]/5 px-4 py-2 rounded-full flex items-center gap-2 transition-all active:scale-95 border border-[#007AFF]/10"
+                        >
+                            <ArrowPathIcon className="w-3.5 h-3.5" />
+                            Regenerate with more detail
+                        </button>
+                    </Tooltip>
+                </div>
+            )}
+        </div>
+    );
+};

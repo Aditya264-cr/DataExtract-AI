@@ -1,0 +1,464 @@
+
+import React, { useState, useCallback, useMemo, useContext, useEffect, useRef } from 'react';
+import { Header } from './components/Header';
+import { UploadSection } from './components/UploadSection';
+import { ProcessingView } from './components/ProcessingView';
+import { SettingsProvider, SettingsContext } from './contexts/SettingsContext';
+import { classifyDocument, performExtraction } from './services/geminiService';
+import type { UploadedFile, ProcessingState, ExtractedData, Template, Preset, BatchResult } from './types';
+import { MAX_FILE_SIZE, SUPPORTED_FILE_TYPES } from './constants';
+import { Greeting } from './components/Greeting';
+import { WorkspaceLayout } from './components/layout/WorkspaceLayout';
+import { FilePreview } from './components/FilePreview';
+import { RecentExtractions } from './components/home/RecentExtractions';
+import { StatsBar } from './components/home/StatsBar';
+import { ClassificationConfirmationModal } from './components/ui/ClassificationConfirmationModal';
+import { BatchSummaryModal } from './components/ui/BatchSummaryModal';
+import { GuidanceRail } from './components/home/GuidanceRail';
+import { AssistantPreview } from './components/home/AssistantPreview';
+import { HowItWorks } from './components/home/HowItWorks';
+import { DocTypes } from './components/home/DocTypes';
+import { ArrowUpTrayIcon } from './components/icons/ArrowUpTrayIcon';
+import { saveSession, loadSession, clearSession } from './utils/sessionManager';
+import { Notification } from './components/ui/Notification';
+import { Portal } from './components/ui/Portal';
+import { useSidebar } from './hooks/useSidebar';
+
+const rotatingTips = [
+    "High contrast mode helps identify faint text in scanned docs.",
+    "Drag multiple images to process them as a single document batch.",
+    "Use custom templates to enforce specific data structures.",
+    "Assistive chat can explain why specific values were extracted."
+];
+
+// Increased threshold to ensure human verification for ambiguous docs
+const CLASSIFICATION_CONFIDENCE_THRESHOLD = 80;
+
+function App() {
+  const { settings, history, addToHistory, clearHistory } = useContext(SettingsContext);
+  const [processingState, setProcessingState] = useState<ProcessingState>('idle');
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [description, setDescription] = useState<string>('');
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [stats, setStats] = useState({ docsCount: 0, fieldsCount: 0 });
+  const [tipIndex, setTipIndex] = useState(0);
+  const [classificationResult, setClassificationResult] = useState<{ docType: string; confidence: number; } | null>(null);
+
+  // Global Drag & Drop State
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
+
+  // Batch processing state
+  const [currentlyProcessingFileIndex, setCurrentlyProcessingFileIndex] = useState<number | null>(null);
+  const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
+
+  // Restoration State
+  const [restoreNotification, setRestoreNotification] = useState<boolean>(false);
+  const [pendingSession, setPendingSession] = useState<any>(null);
+
+  // Sidebar State
+  const { isLeftOpen, toggleLeftSidebar, isRightOpen, toggleRightSidebar } = useSidebar();
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTipIndex((prev) => (prev + 1) % rotatingTips.length);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // --- Auto-Save & Restoration Logic ---
+  useEffect(() => {
+      const checkSession = async () => {
+          const session = await loadSession();
+          if (session && (session.files.length > 0 || session.description.length > 5)) {
+              setPendingSession(session);
+              setRestoreNotification(true);
+          }
+      };
+      checkSession();
+  }, []);
+
+  useEffect(() => {
+      if (processingState === 'idle' && files.length === 0 && !description) {
+          return;
+      }
+      const timer = setTimeout(() => {
+          saveSession(files, extractedData, description, activePresetId, processingState);
+      }, 1000);
+      return () => clearTimeout(timer);
+  }, [files, extractedData, description, activePresetId, processingState]);
+
+  const handleRestoreSession = () => {
+      if (pendingSession) {
+          setFiles(pendingSession.files);
+          setExtractedData(pendingSession.extractedData);
+          setDescription(pendingSession.description);
+          setActivePresetId(pendingSession.activePreset); // Note: sessionManager needs update to match activePresetId
+          setProcessingState(pendingSession.processingState);
+          setRestoreNotification(false);
+          setPendingSession(null);
+      }
+  };
+
+  const handleDismissRestore = () => {
+      setRestoreNotification(false);
+      setPendingSession(null);
+      clearSession();
+  };
+
+  const handleFileChange = useCallback((selectedFiles: File[]) => {
+    setError(null);
+    const newFiles: UploadedFile[] = Array.from(selectedFiles)
+      .filter(file => {
+        if (!SUPPORTED_FILE_TYPES.includes(file.type)) {
+          setError(`File type not supported: ${file.name}`);
+          return false;
+        }
+        if (file.size > MAX_FILE_SIZE) {
+          setError(`File size exceeds 10MB: ${file.name}`);
+          return false;
+        }
+        return true;
+      })
+      .map(file => ({
+        id: crypto.randomUUID(),
+        file,
+        preview: URL.createObjectURL(file),
+      }));
+
+    if (newFiles.length > 0) {
+      setFiles(prev => [...prev, ...newFiles]);
+      setProcessingState('files_selected');
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+        if (e.clipboardData && e.clipboardData.files.length > 0) {
+            e.preventDefault();
+            const pastedFiles = Array.from(e.clipboardData.files);
+            handleFileChange(pastedFiles);
+        }
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [handleFileChange]);
+
+  const handleGlobalDragEnter = useCallback((e: React.DragEvent) => {
+      e.preventDefault(); e.stopPropagation();
+      dragCounter.current += 1;
+      if (e.dataTransfer.items && e.dataTransfer.items.length > 0) setIsDragging(true);
+  }, []);
+
+  const handleGlobalDragLeave = useCallback((e: React.DragEvent) => {
+      e.preventDefault(); e.stopPropagation();
+      dragCounter.current -= 1;
+      if (dragCounter.current === 0) setIsDragging(false);
+  }, []);
+
+  const handleGlobalDragOver = useCallback((e: React.DragEvent) => {
+      e.preventDefault(); e.stopPropagation();
+  }, []);
+
+  const handleGlobalDrop = useCallback((e: React.DragEvent) => {
+      e.preventDefault(); e.stopPropagation();
+      setIsDragging(false);
+      dragCounter.current = 0;
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handleFileChange(Array.from(e.dataTransfer.files));
+  }, [handleFileChange]);
+
+  const handleRemoveFile = useCallback((fileId: string) => {
+    setFiles(prev => {
+      const fileToRemove = prev.find(f => f.id === fileId);
+      if(fileToRemove) URL.revokeObjectURL(fileToRemove.preview);
+      const newFiles = prev.filter(f => f.id !== fileId);
+      if (newFiles.length === 0) {
+        setProcessingState('idle');
+        setSelectedTemplate(null);
+      }
+      return newFiles;
+    });
+  }, []);
+  
+  const continueSingleFileExtraction = async (confirmedDocType: string, customPrompt?: string) => {
+    setProcessingState('processing');
+    setClassificationResult(null);
+    try {
+      const finalDescription = customPrompt || description;
+      const data = await performExtraction(files, confirmedDocType, finalDescription, settings.documentLanguage);
+      setExtractedData(data);
+      setProcessingState('results');
+      
+      const fieldsCount = Array.isArray(data.data) ? (data.data as Record<string, any>[]).reduce((acc: number, item) => acc + Object.keys(item).length, 0) : Object.keys(data.data).length;
+      setStats(prev => ({ docsCount: prev.docsCount + 1, fieldsCount: prev.fieldsCount + fieldsCount }));
+      addToHistory({ id: crypto.randomUUID(), fileNames: files.map(f => f.file.name), docType: data.documentType, timestamp: new Date().toISOString(), data });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'An error occurred during extraction.');
+      setProcessingState('error');
+    }
+  };
+
+  const startPipeline = async () => {
+    if (files.length === 0) return;
+    setError(null);
+    
+    // Determine Doc Type based on preset
+    let targetDocType: string | undefined;
+    if (activePresetId) {
+        const preset = settings.presets.find(p => p.id === activePresetId);
+        targetDocType = preset ? preset.docType : undefined;
+    }
+
+    if (files.length === 1) {
+        setProcessingState('processing');
+        try {
+            // Use preset docType if available, otherwise classify
+            const result = targetDocType 
+                ? { docType: targetDocType, confidence: 100 } 
+                : await classifyDocument(files, settings.documentLanguage);
+
+            if (result.confidence < CLASSIFICATION_CONFIDENCE_THRESHOLD && !activePresetId) {
+                setClassificationResult(result);
+                setProcessingState('awaiting_classification');
+            } else {
+                await continueSingleFileExtraction(result.docType);
+            }
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'An error occurred during classification.');
+            setProcessingState('error');
+        }
+    } else {
+        setProcessingState('processing');
+        setBatchResults([]);
+        let cumulativeFields = 0;
+
+        for (let i = 0; i < files.length; i++) {
+            setCurrentlyProcessingFileIndex(i);
+            const currentFile = files[i];
+            try {
+                // For batch, if no preset, we classify each. If preset, we enforce it.
+                const docType = targetDocType || (await classifyDocument([currentFile], settings.documentLanguage)).docType;
+                const data = await performExtraction([currentFile], docType, description, settings.documentLanguage);
+                setBatchResults(prev => [...(prev || []), { file: currentFile, status: 'success', data }]);
+                const fieldsCount = Array.isArray(data.data) ? (data.data as Record<string, any>[]).reduce((acc: number, item) => acc + Object.keys(item).length, 0) : Object.keys(data.data).length;
+                cumulativeFields += fieldsCount;
+                addToHistory({ id: crypto.randomUUID(), fileNames: [currentFile.file.name], docType: data.documentType, timestamp: new Date().toISOString(), data });
+            } catch (e) {
+                const errorMsg = e instanceof Error ? e.message : 'Unknown processing error.';
+                setBatchResults(prev => [...(prev || []), { file: currentFile, status: 'error', error: errorMsg }]);
+            }
+        }
+        
+        setStats(prev => ({ docsCount: prev.docsCount + files.length, fieldsCount: prev.fieldsCount + cumulativeFields }));
+        setCurrentlyProcessingFileIndex(null);
+        setProcessingState('batch_complete');
+    }
+  };
+
+  const handleNewUpload = useCallback(() => {
+    files.forEach(f => URL.revokeObjectURL(f.preview));
+    setFiles([]);
+    setExtractedData(null);
+    setError(null);
+    setSelectedTemplate(null);
+    setProcessingState('idle');
+    setDescription('');
+    setActivePresetId(null);
+    setClassificationResult(null);
+    setBatchResults(null);
+    setCurrentlyProcessingFileIndex(null);
+    clearSession();
+  }, [files]);
+  
+  const handleReprocess = useCallback((editedData: ExtractedData) => {
+     setProcessingState('processing');
+     setError(null);
+     performExtraction(files, editedData.documentType, description, settings.documentLanguage, editedData)
+        .then(data => {
+            setExtractedData(data);
+            setProcessingState('results');
+        })
+        .catch(e => {
+            setError(e instanceof Error ? e.message : 'An error occurred during re-processing.');
+            setProcessingState('error');
+        });
+  }, [files, description, settings.documentLanguage]);
+
+  const handleSelectHistoryItem = (item: any) => {
+    setExtractedData(item.data);
+    const placeholderFiles: UploadedFile[] = item.fileNames.map((name: string) => ({
+      id: crypto.randomUUID(),
+      file: new File([], name, { type: 'application/octet-stream' }),
+      preview: '', 
+    }));
+    setFiles(placeholderFiles);
+    setProcessingState('results');
+  };
+
+  const handleSelectBatchResult = (data: ExtractedData) => {
+    const associatedFile = batchResults?.find(r => r.data === data)?.file;
+    if (associatedFile) setFiles([associatedFile]);
+    setExtractedData(data);
+    setBatchResults(null);
+    setProcessingState('results');
+  };
+
+  const handlePresetSelect = (presetId: string, presetPrompt: string) => {
+    if (activePresetId === presetId) {
+        setActivePresetId(null);
+        setDescription('');
+    } else {
+        setActivePresetId(presetId);
+        setDescription(presetPrompt);
+    }
+  };
+  
+  const activePresetName = useMemo(() => {
+      return settings.presets.find(p => p.id === activePresetId)?.name || null;
+  }, [settings.presets, activePresetId]);
+
+  const renderContent = useMemo(() => {
+    const lastUsedPreset = history.length > 0 ? history[0].docType : null;
+    
+    switch (processingState) {
+      case 'idle':
+        return (
+          <div className="flex flex-col lg:flex-row items-start justify-center gap-8 w-full max-w-[1400px] mx-auto pt-8">
+            <GuidanceRail tip={rotatingTips[tipIndex]} lastUsedPreset={lastUsedPreset} />
+            
+            <div className="flex-1 flex flex-col items-center px-4 w-full relative z-0">
+               {/* Ambient Glow for Home Screen */}
+              <div className="absolute top-[-40px] left-1/2 -translate-x-1/2 w-[80%] h-[600px] bg-gradient-to-b from-blue-50/70 via-indigo-50/40 to-transparent dark:from-blue-900/10 dark:via-indigo-900/10 dark:to-transparent blur-[80px] -z-10 rounded-full pointer-events-none mix-blend-multiply dark:mix-blend-screen opacity-80" />
+
+              <Greeting />
+              <UploadSection 
+                onFileChange={handleFileChange} 
+                selectedTemplate={selectedTemplate} 
+                onTemplateSelect={setSelectedTemplate} 
+                description={description} 
+                setDescription={setDescription} 
+                activePresetId={activePresetId} 
+                onPresetSelect={handlePresetSelect} 
+              />
+              <HowItWorks />
+              <DocTypes presets={settings.presets} />
+              <StatsBar docsProcessed={stats.docsCount} fieldsExtracted={stats.fieldsCount} />
+              <RecentExtractions 
+                history={history} 
+                onSelectItem={handleSelectHistoryItem} 
+                onClearHistory={clearHistory}
+              />
+            </div>
+
+            <AssistantPreview />
+          </div>
+        );
+      case 'files_selected':
+        return (
+          <div className="animate-slide-in flex flex-col items-center w-full max-w-4xl mx-auto pt-8">
+            <FilePreview files={files} onRemoveFile={handleRemoveFile} onAddFiles={handleFileChange} />
+            <div className="w-full mt-8 p-8 glass-card rounded-[2.5rem]">
+              <label className="block text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight mb-2 font-display">Refine Extraction Focus</label>
+              <p className="text-base text-gray-500 dark:text-gray-400 mb-6 font-medium">Specify exactly what you're looking for to improve precision.</p>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g., Extract line items and tax summaries." className="w-full h-32 p-4 bg-white/50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-700 rounded-2xl focus:ring-2 focus:ring-[#007AFF] outline-none font-medium transition-all" />
+            </div>
+            <div className="w-full mt-10 text-center pb-12">
+              <button onClick={startPipeline} className="bg-[#007AFF] text-white font-bold py-4 px-16 rounded-full shadow-lg hover:shadow-glow-blue-strong active:scale-95 transition-all text-lg font-display">
+                Extract Data from {files.length} {files.length > 1 ? 'Files' : 'File'}
+              </button>
+            </div>
+          </div>
+        );
+      case 'processing':
+        return <div className="flex justify-center items-center h-[60vh]"><ProcessingView files={files} currentIndex={currentlyProcessingFileIndex} /></div>;
+      case 'awaiting_classification':
+        return <ClassificationConfirmationModal isOpen={true} suggestedType={classificationResult?.docType || 'Unknown'} confidence={classificationResult?.confidence || 0} presets={settings.presets} onConfirm={continueSingleFileExtraction} onCancel={handleNewUpload} />;
+      case 'batch_complete':
+        return <BatchSummaryModal isOpen={true} results={batchResults || []} onClose={handleNewUpload} onSelectResult={handleSelectBatchResult} />;
+      case 'results':
+        return extractedData ? (
+            <WorkspaceLayout 
+                data={extractedData} 
+                files={files} 
+                onNewUpload={handleNewUpload} 
+                onReprocess={handleReprocess} 
+                onAddFiles={handleFileChange} 
+                onRemoveFile={handleRemoveFile}
+                isLeftSidebarOpen={isLeftOpen}
+                onToggleLeftSidebar={toggleLeftSidebar}
+                isRightSidebarOpen={isRightOpen}
+                onToggleRightSidebar={toggleRightSidebar}
+            />
+        ) : null;
+      case 'error':
+        return (
+          <div className="flex flex-col items-center justify-center h-[60vh] animate-fade-in">
+            <div className="text-center p-12 bg-red-50/80 dark:bg-red-900/20 border border-red-100 dark:border-red-500/20 backdrop-blur-xl rounded-3xl max-w-lg mx-auto shadow-xl">
+              <h2 className="text-2xl font-bold text-red-700 dark:text-red-300 font-display">Extraction Failed</h2>
+              <p className="text-red-600 dark:text-red-400 mt-3 font-medium">{error}</p>
+              <button onClick={handleNewUpload} className="mt-8 bg-red-500 text-white font-bold py-3 px-8 rounded-full shadow-md transition-all active:scale-95 font-display hover:bg-red-600">Start Over</button>
+            </div>
+          </div>
+        );
+      default:
+        return null;
+    }
+  }, [processingState, files, extractedData, error, selectedTemplate, description, activePresetId, activePresetName, stats, history, classificationResult, batchResults, currentlyProcessingFileIndex, handleFileChange, handleRemoveFile, handleNewUpload, handleReprocess, handleSelectHistoryItem, clearHistory, settings.presets, settings.documentLanguage, tipIndex, isLeftOpen, isRightOpen, toggleLeftSidebar, toggleRightSidebar]);
+  
+  return (
+    <div 
+        className={`h-screen w-screen flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 overflow-hidden transition-colors duration-300 font-sans text-[var(--text-primary)] ${settings.highContrast ? 'high-contrast' : ''}`}
+        onDragEnter={handleGlobalDragEnter} onDragLeave={handleGlobalDragLeave} onDragOver={handleGlobalDragOver} onDrop={handleGlobalDrop}
+    >
+        {/* The Floating Glass Frame */}
+        <div className="relative w-full h-full max-w-[1800px] bg-[var(--glass-surface)] backdrop-blur-3xl rounded-[2.5rem] border border-[var(--glass-border)] shadow-[0_20px_60px_-10px_rgba(0,0,0,0.1)] overflow-hidden flex flex-col transition-all duration-500">
+            <Header 
+                onHomeClick={handleNewUpload} 
+            />
+            <main className="flex-1 overflow-y-auto ios-scroll w-full relative">
+                {renderContent}
+            </main>
+        </div>
+
+        {/* Global Drag & Drop Overlay in Portal */}
+        {isDragging && (
+            <Portal>
+                <div className="fixed inset-0 z-[100] bg-white/60 dark:bg-black/60 backdrop-blur-xl flex items-center justify-center pointer-events-none animate-fade-in">
+                    <div className="m-8 border-4 border-[#007AFF] border-dashed rounded-[3rem] w-full h-full max-h-[90vh] max-w-[90vw] flex flex-col items-center justify-center p-12 bg-white/40 dark:bg-white/5 shadow-2xl">
+                        <div className="p-8 rounded-full bg-[#007AFF]/10 text-[#007AFF] mb-8 animate-bounce">
+                            <ArrowUpTrayIcon className="w-20 h-20" />
+                        </div>
+                        <h2 className="text-4xl font-extrabold text-[#1d1d1f] dark:text-white font-display text-center">
+                            Drop to Extract
+                        </h2>
+                        <p className="mt-4 text-xl text-[#86868b] dark:text-gray-400 font-medium text-center max-w-md">
+                            Release your files here to instantly start the AI analysis process.
+                        </p>
+                    </div>
+                </div>
+            </Portal>
+        )}
+
+        {/* Restore Session Notification */}
+        {restoreNotification && (
+            <Notification
+                message="Previous session found. Restore it?"
+                type="info"
+                onClose={handleDismissRestore}
+                action={{ label: "Restore", onClick: handleRestoreSession }}
+            />
+        )}
+    </div>
+  );
+}
+
+const AppWrapper: React.FC = () => (
+    <SettingsProvider>
+        <App />
+    </SettingsProvider>
+);
+
+export default AppWrapper;
