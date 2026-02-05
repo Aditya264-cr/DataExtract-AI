@@ -93,6 +93,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
             aria-labelledby="modal-title"
             role="dialog"
             aria-modal="true"
+            style={{ overscrollBehavior: 'contain' }} // Prevent background scroll chaining
         >
             {/* Overlay - Frosted Glass Strategy: 12px blur, 10% black opacity */}
             <div 

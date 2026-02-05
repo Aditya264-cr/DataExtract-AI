@@ -17,9 +17,10 @@ interface SourceItemMenuProps {
     file: UploadedFile;
     onPreview: (fileId: string, heatmap: boolean) => void;
     onRemove: (fileId: string) => void;
+    isVisible: boolean;
 }
 
-const SourceItemMenu: React.FC<SourceItemMenuProps> = ({ file, onPreview, onRemove }) => {
+const SourceItemMenu: React.FC<SourceItemMenuProps> = ({ file, onPreview, onRemove, isVisible }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
@@ -80,12 +81,16 @@ const SourceItemMenu: React.FC<SourceItemMenuProps> = ({ file, onPreview, onRemo
     );
 
     return (
-        <div className="flex-shrink-0">
+        <div className="flex-shrink-0 relative">
             <Tooltip text="Source options" position="left">
                 <button
                     ref={buttonRef}
                     onClick={handleToggleMenu}
-                    className="p-1.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-black/10 dark:hover:bg-white/10"
+                    className={`p-1.5 rounded-full transition-colors ${
+                        isVisible || isOpen 
+                            ? 'text-gray-500 dark:text-gray-300 bg-black/5 dark:bg-white/10' 
+                            : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5'
+                    }`}
                     aria-haspopup="true"
                     aria-expanded={isOpen}
                     aria-label="Source options"
@@ -157,30 +162,34 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({ files, onRemoveFile, o
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-tight">PDF, JPG, PNG</p>
                                 </div>
                             </button>
-                            {files.map(file => (
-                                <div
-                                    key={file.id}
-                                    onClick={() => onSelectFile(file.id)}
-                                    className={`group relative flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all duration-200 border shadow-sm ${
-                                        selectedFileId === file.id 
-                                            ? 'bg-white dark:bg-zinc-800 border-black/10 dark:border-white/10 ring-2 ring-[#007AFF]/30' 
-                                            : 'bg-white/60 dark:bg-zinc-800/40 border-black/5 dark:border-white/5 hover:bg-white/80 dark:hover:bg-zinc-800/60'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-3 overflow-hidden min-w-0 flex-1">
-                                        <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${selectedFileId === file.id ? 'bg-[#007AFF]/10' : 'bg-black/5 dark:bg-zinc-700/50'}`}>
-                                            {file.file.type.startsWith('image/') ? <PhotoIcon className="w-5 h-5 text-blue-500" /> : <DocumentIcon className="w-5 h-5 text-red-500" />}
+                            {files.map(file => {
+                                const isSelected = selectedFileId === file.id;
+                                return (
+                                    <div
+                                        key={file.id}
+                                        onClick={() => onSelectFile(file.id)}
+                                        className={`group relative flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all duration-200 border shadow-sm ${
+                                            isSelected 
+                                                ? 'bg-white dark:bg-zinc-800 border-black/10 dark:border-white/10 ring-2 ring-[#007AFF]/30' 
+                                                : 'bg-white/60 dark:bg-zinc-800/40 border-black/5 dark:border-white/5 hover:bg-white/80 dark:hover:bg-zinc-800/60'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3 overflow-hidden min-w-0 flex-1">
+                                            <div className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${isSelected ? 'bg-[#007AFF]/10' : 'bg-black/5 dark:bg-zinc-700/50'}`}>
+                                                {file.file.type.startsWith('image/') ? <PhotoIcon className="w-5 h-5 text-blue-500" /> : <DocumentIcon className="w-5 h-5 text-red-500" />}
+                                            </div>
+                                            <div className="truncate min-w-0">
+                                                <p className="text-sm font-bold text-gray-800 dark:text-gray-100 truncate font-body">{file.file.name}</p>
+                                                <p className="text-[11px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-tight">{(file.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                                            </div>
                                         </div>
-                                        <div className="truncate min-w-0">
-                                            <p className="text-sm font-bold text-gray-800 dark:text-gray-100 truncate font-body">{file.file.name}</p>
-                                            <p className="text-[11px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-tight">{(file.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                                        {/* Menu: Always visible if selected, otherwise show on hover */}
+                                        <div className={`transition-opacity duration-200 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                            <SourceItemMenu file={file} onPreview={onPreviewSource} onRemove={onRemoveFile} isVisible={isSelected} />
                                         </div>
                                     </div>
-                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <SourceItemMenu file={file} onPreview={onPreviewSource} onRemove={onRemoveFile} />
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 ) : (

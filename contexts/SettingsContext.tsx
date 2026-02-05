@@ -34,14 +34,16 @@ type Settings = {
     // Data
     templates: Template[];
     presets: Preset[];
-    isPanelOpen: boolean; 
 };
+
+export type ActivePanel = 'settings' | 'faq' | 'copyright' | 'updates' | null;
 
 type SettingsContextType = {
     settings: Settings;
     history: any[];
-    updateSetting: (key: keyof Omit<Settings, 'isPanelOpen' | 'templates' | 'presets'>, value: any) => void;
-    setPanelOpen: (isOpen: boolean) => void;
+    activePanel: ActivePanel;
+    setActivePanel: (panel: ActivePanel) => void;
+    updateSetting: (key: keyof Settings, value: any) => void;
     addTemplate: (template: Template) => void;
     deleteTemplate: (templateId: string) => void;
     addPreset: (preset: Preset) => void;
@@ -79,14 +81,14 @@ const defaultSettings: Settings = {
     systemMode: 'PROFESSIONAL',
     templates: [],
     presets: defaultPresets,
-    isPanelOpen: false,
 };
 
 export const SettingsContext = createContext<SettingsContextType>({
     settings: defaultSettings,
     history: [],
+    activePanel: null,
+    setActivePanel: () => {},
     updateSetting: () => {},
-    setPanelOpen: () => {},
     addTemplate: () => {},
     deleteTemplate: () => {},
     addPreset: () => {},
@@ -104,17 +106,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             const initial = savedSettings ? JSON.parse(savedSettings) : null;
             
             if (initial) {
-                const merged = { ...defaultSettings, ...initial, isPanelOpen: false };
+                const merged = { ...defaultSettings, ...initial };
                 if (!Array.isArray(initial.presets)) {
                     merged.presets = defaultPresets;
                 }
-                // Ensure systemMode exists for legacy saved settings
                 if (!merged.systemMode) merged.systemMode = 'PROFESSIONAL';
-                // Remove legacy darkMode if present
                 delete merged.darkMode;
+                delete merged.isPanelOpen; // Cleanup legacy
                 return merged;
             }
-            return { ...defaultSettings, isPanelOpen: false };
+            return defaultSettings;
         } catch (error) {
             console.error("Failed to parse settings from localStorage", error);
             return defaultSettings;
@@ -130,24 +131,22 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
     });
 
+    const [activePanel, setActivePanel] = useState<ActivePanel>(null);
+
     const saveSettings = useCallback((newSettings: Settings) => {
         if (!newSettings.savePreferences) {
             localStorage.removeItem(SETTINGS_KEY);
             return;
         }
         try {
-            const { isPanelOpen, ...settingsToSave } = newSettings;
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
         } catch (error) {
             console.error("Failed to save settings to localStorage", error);
         }
     }, []);
 
     useEffect(() => {
-        // Force Light Mode
         document.documentElement.classList.remove('dark');
-
-        // Apply Glass Intensity (Light Mode Only)
         const root = document.documentElement;
         if (settings.glassIntensity === 'low') {
             root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.95)');
@@ -156,14 +155,12 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.40)');
             root.style.setProperty('--glass-blur', '40px');
         } else {
-            // Medium (Default)
             root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.55)');
              root.style.setProperty('--glass-blur', '20px');
         }
-
     }, [settings.glassIntensity]);
 
-    const updateSetting = (key: keyof Omit<Settings, 'isPanelOpen' | 'templates' | 'presets'>, value: any) => {
+    const updateSetting = (key: keyof Settings, value: any) => {
         setSettings(prevSettings => {
             const newSettings = { ...prevSettings, [key]: value };
             saveSettings(newSettings);
@@ -219,10 +216,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
     };
 
-    const setPanelOpen = (isOpen: boolean) => {
-        setSettings(prev => ({ ...prev, isPanelOpen: isOpen }));
-    };
-
     const addToHistory = (entry: any) => {
         setHistory(prev => {
             const updated = [entry, ...prev].slice(0, 10);
@@ -239,8 +232,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const contextValue = useMemo(() => ({
         settings,
         history,
+        activePanel,
+        setActivePanel,
         updateSetting,
-        setPanelOpen,
         addTemplate,
         deleteTemplate,
         addPreset,
@@ -249,7 +243,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         resetPresetsToDefault,
         addToHistory,
         clearHistory,
-    }), [settings, history, saveSettings]);
+    }), [settings, history, activePanel, saveSettings]);
 
     return (
         <SettingsContext.Provider value={contextValue}>

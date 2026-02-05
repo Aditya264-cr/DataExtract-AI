@@ -7,25 +7,104 @@ import { fileToBase64 } from '../utils/fileUtils';
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Model definitions based on task complexity
-const MODEL_LITE = "gemini-flash-lite-latest"; // Low-latency, cost-effective
-const MODEL_STD = "gemini-3-flash-preview";    // Standard, tool-capable
-const MODEL_PRO = "gemini-3-pro-preview";      // High-intelligence, reasoning
+const MODEL_LITE = "gemini-2.5-flash-lite";      // Low-latency, cost-effective (Updated to 2.5 Flash Lite)
+const MODEL_STD = "gemini-3-flash-preview";      // Standard, tool-capable
+const MODEL_PRO = "gemini-3-pro-preview";        // High-intelligence, reasoning
+const MODEL_IMAGE = "gemini-3-pro-image-preview"; // High-quality image generation
 
 // Helper to robustly extract JSON from potentially Markdown-wrapped or dirty text
 const cleanJsonOutput = (text: string): string => {
     if (!text) return "{}";
     
-    // 1. Try to find the outermost JSON object bounds
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        return text.substring(firstBrace, lastBrace + 1);
+    // 1. Try to extract from Markdown code blocks first (most reliable)
+    const jsonBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonBlockMatch && jsonBlockMatch[1]) {
+        return jsonBlockMatch[1].trim();
+    }
+
+    // 2. Try to find the first valid outer JSON object
+    let firstBrace = text.indexOf('{');
+    if (firstBrace === -1) return "{}";
+
+    let balance = 0;
+    let inString = false;
+    let escape = false;
+    let endBrace = -1;
+
+    for (let i = firstBrace; i < text.length; i++) {
+        const char = text[i];
+        
+        if (escape) {
+            escape = false;
+            continue;
+        }
+
+        if (char === '\\') {
+            escape = true;
+            continue;
+        }
+
+        if (char === '"') {
+            inString = !inString;
+            continue;
+        }
+
+        if (!inString) {
+            if (char === '{') {
+                balance++;
+            } else if (char === '}') {
+                balance--;
+                if (balance === 0) {
+                    endBrace = i;
+                    break; 
+                }
+            }
+        }
+    }
+
+    if (endBrace !== -1) {
+        return text.substring(firstBrace, endBrace + 1);
     }
     
-    // 2. Fallback: Standard Markdown cleaning
+    // 3. Fallback
+    const lastBrace = text.lastIndexOf('}');
+    if (lastBrace > firstBrace) {
+        return text.substring(firstBrace, lastBrace + 1);
+    }
+
     return text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
 };
+
+// --- Retry Logic for Handling Quota Errors (429) ---
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 2000;
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function withRetry<T>(operation: () => Promise<T>, retries = MAX_RETRIES): Promise<T> {
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await operation();
+        } catch (error: any) {
+            const msg = (error.message || error.toString()).toLowerCase();
+            const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
+            const isServer = msg.includes('503') || msg.includes('500') || msg.includes('overloaded');
+
+            if ((isQuota || isServer) && i < retries - 1) {
+                const waitTime = INITIAL_RETRY_DELAY * Math.pow(2, i);
+                console.warn(`API Busy (Attempt ${i + 1}/${retries}). Retrying in ${waitTime}ms...`, error);
+                await delay(waitTime);
+                continue;
+            }
+            
+            if (isQuota) {
+                throw new Error("System is currently at capacity (Quota Exceeded). Please try again in a moment.");
+            }
+            throw error;
+        }
+    }
+    throw new Error("Operation failed after multiple retries.");
+}
 
 export const classifyDocument = async (files: UploadedFile[], language: string): Promise<{ docType: string; confidence: number; }> => {
     const languageHint = language !== 'auto' ? ` The document's primary language is ${language}.` : '';
@@ -38,11 +117,11 @@ export const classifyDocument = async (files: UploadedFile[], language: string):
     );
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: MODEL_LITE, // Use Flash Lite for ultra-fast classification
             contents: { parts: [{ text: prompt }, ...imageParts] },
             config: { responseMimeType: "application/json" },
-        });
+        }));
         
         const responseText = response.text;
         if (!responseText) {
@@ -56,6 +135,7 @@ export const classifyDocument = async (files: UploadedFile[], language: string):
         };
     } catch (e) {
         console.error("Classification error:", e);
+        if (e instanceof Error && e.message.includes("Quota")) throw e;
         return { docType: "Unknown", confidence: 0 };
     }
 };
@@ -74,7 +154,6 @@ export const performExtraction = async (
         }))
     );
 
-    // New System Prompt Definition
     const prompt = `
 You are a multimodal data extraction and analysis system.
 
@@ -210,15 +289,15 @@ ${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)
 `;
 
     try {
-        const response = await ai.models.generateContent({
-            model: MODEL_PRO, // gemini-3-pro-preview
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: MODEL_PRO, // gemini-3-pro-preview for deep analysis
             contents: { parts: [{ text: prompt }, ...imageParts] },
             config: { 
                 responseMimeType: "application/json",
                 // Enable Thinking Mode with max budget for detailed forensic analysis
                 thinkingConfig: { thinkingBudget: 32768 } 
             },
-        });
+        }));
 
         const responseText = response.text;
         if (!responseText) {
@@ -227,32 +306,27 @@ ${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)
         
         const parsed = JSON.parse(cleanJsonOutput(responseText));
         
-        // --- Post-Processing: Map to ExtractedData Interface & Extract Highlights ---
         const highlights: Highlight[] = [];
-        
-        // Helper to extract highlight from a field object
         const processField = (field: any, name: string) => {
             if (field && field.boundingBox && Array.isArray(field.boundingBox)) {
                 highlights.push({
                     fieldName: name,
                     text: String(field.value),
                     boundingBox: [
-                        field.boundingBox[1], // x_min
-                        field.boundingBox[0], // y_min
-                        field.boundingBox[3], // x_max
-                        field.boundingBox[2]  // y_max
+                        field.boundingBox[1], 
+                        field.boundingBox[0], 
+                        field.boundingBox[3], 
+                        field.boundingBox[2]  
                     ],
                     confidence: field.confidence || 0
                 });
             }
         };
 
-        // 1. Process Title
         if (parsed.structuredData?.title) {
             processField(parsed.structuredData.title, "Document Title");
         }
 
-        // 2. Process Sections
         if (Array.isArray(parsed.structuredData?.sections)) {
             parsed.structuredData.sections.forEach((section: any) => {
                 if (Array.isArray(section.content)) {
@@ -264,7 +338,6 @@ ${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)
             });
         }
 
-        // 3. Process Tables
         if (Array.isArray(parsed.structuredData?.tables)) {
             parsed.structuredData.tables.forEach((table: any) => {
                 if (Array.isArray(table.rows)) {
@@ -278,26 +351,25 @@ ${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)
             });
         }
 
-        // Return strictly typed ExtractedData
         return {
             documentType: parsed.meta?.contentType || docType,
-            confidenceScore: parsed.structuredData?.title?.confidence || 90, // Fallback confidence
+            confidenceScore: parsed.structuredData?.title?.confidence || 90, 
             meta: parsed.meta,
             structuredData: parsed.structuredData,
             imageAnalysis: parsed.imageAnalysis,
             rawTextSummary: parsed.rawTextSummary,
-            data: parsed.structuredData, // Keep for legacy refs if needed, though Adapter handles it
+            data: parsed.structuredData, 
             highlights: highlights
         };
 
     } catch (e) {
         console.error(e);
-        throw new Error("Extraction engine failed to parse document content.");
+        if (e instanceof Error && e.message.includes("Quota")) throw e;
+        throw new Error("Extraction engine failed to parse document content. Please try again.");
     }
 };
 
 export const generateSummaryFromData = async (extractedData: ExtractedData, isDetailed = false): Promise<AISummaryData> => {
-    // If we already have a rawTextSummary from the main pass, use it first if it's simple
     if (!isDetailed && extractedData.rawTextSummary) {
         return {
             summary: extractedData.rawTextSummary,
@@ -317,18 +389,18 @@ Return as JSON: { "summary": "string", "confidenceScore": number (0-100) }.
     `;
     
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: MODEL_LITE, // Use Flash Lite for fast text-based summarization
             contents: prompt,
             config: { responseMimeType: "application/json" },
-        });
+        }));
         const responseText = response.text;
         if (responseText) {
             return JSON.parse(cleanJsonOutput(responseText)) as AISummaryData;
         }
         throw new Error("Summary generation returned an empty response.");
     } catch {
-        return { summary: "Summary generation failed.", confidenceScore: 0 };
+        return { summary: "Summary generation failed or service busy.", confidenceScore: 0 };
     }
 };
 
@@ -340,12 +412,15 @@ export const getExplanationForField = async (fieldName: string, fieldValue: stri
 Be concise and direct.`;
     const imageParts = await Promise.all(files.map(async (f) => ({ inlineData: { mimeType: f.file.type, data: await fileToBase64(f.file) } })));
     try {
-        const response = await ai.models.generateContent({ 
-            model: MODEL_PRO, // Use Pro for detailed visual reasoning
-            contents: { parts: [{ text: prompt }, ...imageParts] } 
-        });
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({ 
+            model: MODEL_PRO, // Use Pro with thinking for detailed visual reasoning
+            contents: { parts: [{ text: prompt }, ...imageParts] },
+            config: { 
+                thinkingConfig: { thinkingBudget: 32768 } // Enable Thinking for explanations
+            }
+        }));
         return response.text ?? "Explanation unavailable.";
-    } catch { return "Explanation unavailable."; }
+    } catch { return "Explanation unavailable due to high traffic."; }
 };
 
 export const askDocumentChat = async (extractedData: ExtractedData, question: string, chatHistory: ChatMessage[]): Promise<{ text: string; sources?: { title: string; uri: string }[] }> => {
@@ -358,19 +433,74 @@ export const askDocumentChat = async (extractedData: ExtractedData, question: st
         history: chatHistory.map(m => ({ role: m.role, parts: [{ text: m.content }] }))
     });
 
-    const result = await chat.sendMessage({ message: `Document Data: ${JSON.stringify(extractedData.structuredData)}\n\nUser Question: ${question}` });
-    const text = result.text ?? "Sorry, I could not generate a response.";
+    try {
+        const result = await withRetry<GenerateContentResponse>(() => chat.sendMessage({ message: `Document Data: ${JSON.stringify(extractedData.structuredData)}\n\nUser Question: ${question}` }));
+        const text = result.text ?? "Sorry, I could not generate a response.";
 
-    const sources: { title: string; uri: string }[] = [];
-    const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    
-    if (chunks) {
-        chunks.forEach(chunk => {
-            if (chunk.web?.uri && chunk.web?.title) {
-                sources.push({ title: chunk.web.title, uri: chunk.web.uri });
-            }
-        });
+        const sources: { title: string; uri: string }[] = [];
+        const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        
+        if (chunks) {
+            chunks.forEach(chunk => {
+                if (chunk.web?.uri && chunk.web?.title) {
+                    sources.push({ title: chunk.web.title, uri: chunk.web.uri });
+                }
+            });
+        }
+
+        return { text, sources };
+    } catch (e) {
+        console.error(e);
+        return { text: "I'm having trouble connecting right now due to high traffic. Please try asking again in a moment." };
     }
+};
 
-    return { text, sources };
+export const generateSketchnotes = async (extractedData: ExtractedData): Promise<string> => {
+    const dataStr = JSON.stringify(extractedData.structuredData, null, 2);
+    const dateStr = new Date().toLocaleDateString();
+
+    const prompt = `
+You are an AI visual note designer.
+Your task is to convert the provided extracted document content into visually structured SKETCHNOTES.
+Transform plain text into sketchnotes that are easy to understand, visually organized, and suitable for quick revision.
+Produce a SKETCHNOTES-style layout in clean visual text format.
+\n\n${dataStr}\n\nwatermark :Generated by DataExtract AI • ${dateStr}
+    `;
+
+    try {
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: MODEL_PRO,
+            contents: prompt,
+        }));
+        return response.text ?? "Could not generate sketchnotes.";
+    } catch {
+        return "Sketchnote generation unavailable due to high traffic.";
+    }
+};
+
+export const generateCreativeImage = async (prompt: string, size: '1K' | '2K' | '4K'): Promise<string> => {
+    try {
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: MODEL_IMAGE,
+            contents: { parts: [{ text: prompt }] },
+            config: {
+                imageConfig: {
+                    imageSize: size,
+                    aspectRatio: "16:9" // Default to landscape for broad applicability
+                }
+            }
+        }));
+
+        if (response.candidates && response.candidates[0].content.parts) {
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                }
+            }
+        }
+        throw new Error("No image data found in response.");
+    } catch (e) {
+        console.error("Image generation error:", e);
+        throw new Error("Failed to generate image. Please try again.");
+    }
 };

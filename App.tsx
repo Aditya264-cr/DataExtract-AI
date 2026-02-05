@@ -47,8 +47,8 @@ const PerspectiveGrid = () => {
                     style={{
                         transform: 'rotateX(60deg)',
                         backgroundImage: `
-                            linear-gradient(to right, rgba(59, 130, 246, 0.2) 1px, transparent 1px),
-                            linear-gradient(to bottom, rgba(59, 130, 246, 0.2) 1px, transparent 1px)
+                            linear-gradient(to right, rgba(0, 0, 0, 0.08) 1px, transparent 1px),
+                            linear-gradient(to bottom, rgba(0, 0, 0, 0.08) 1px, transparent 1px)
                         `,
                         backgroundSize: '60px 60px',
                         maskImage: 'linear-gradient(to top, black 10%, transparent 80%)',
@@ -401,17 +401,42 @@ function App() {
         );
       case 'files_selected':
         return (
-          <div className="animate-slide-in flex flex-col items-center w-full max-w-4xl mx-auto pt-8">
-            <FilePreview files={files} onRemoveFile={handleRemoveFile} onAddFiles={handleFileChange} />
-            <div className="w-full mt-8 p-8 glass-card rounded-[2.5rem]">
-              <label className="block text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight mb-2 font-display">Refine Extraction Focus</label>
-              <p className="text-base text-gray-500 dark:text-gray-400 mb-6 font-medium">Specify exactly what you're looking for to improve precision.</p>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g., Extract line items and tax summaries." className="w-full h-32 p-4 bg-white/50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-700 rounded-2xl focus:ring-2 focus:ring-[#007AFF] outline-none font-medium transition-all" />
+          <div className="animate-slide-in flex flex-col items-center w-full max-w-4xl mx-auto pt-10 relative z-10 px-4">
+            {/* Ambient Background */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[140%] h-[1000px] -z-10 pointer-events-none select-none opacity-50">
+                <div className="absolute top-[5%] left-[20%] w-[600px] h-[600px] bg-blue-100/30 dark:bg-blue-900/10 rounded-full blur-[100px] mix-blend-multiply dark:mix-blend-screen animate-float-1" />
+                <div className="absolute top-[15%] right-[15%] w-[500px] h-[500px] bg-purple-100/30 dark:bg-purple-900/10 rounded-full blur-[100px] mix-blend-multiply dark:mix-blend-screen animate-float-2" />
             </div>
-            <div className="w-full mt-10 text-center pb-12">
-              <button onClick={startPipeline} className="bg-[#007AFF] text-white font-bold py-4 px-16 rounded-full shadow-lg hover:shadow-glow-blue-strong active:scale-95 transition-all text-lg font-display">
-                Extract Data from {files.length} {files.length > 1 ? 'Files' : 'File'}
-              </button>
+
+            <FilePreview files={files} onRemoveFile={handleRemoveFile} onAddFiles={handleFileChange} />
+            
+            <div className="w-full mt-6 p-8 bg-white/60 dark:bg-zinc-900/40 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-[2.5rem] shadow-sm transition-all hover:shadow-md hover:bg-white/70 dark:hover:bg-zinc-900/50">
+                <div className="mb-6 pl-1">
+                    <label className="block text-xl font-bold text-gray-900 dark:text-gray-100 tracking-tight font-display">Refine Extraction Focus</label>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mt-1">Tell us what matters most in this document.</p>
+                </div>
+                
+                <div className="relative group">
+                    <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-2xl opacity-0 group-focus-within:opacity-100 transition-opacity blur duration-500"></div>
+                    <textarea 
+                        value={description} 
+                        onChange={(e) => setDescription(e.target.value)} 
+                        placeholder="e.g. Extract the invoice number, total amount, and line items table. Ignore the footer text." 
+                        className="relative w-full h-40 p-5 bg-white/50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-2xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500/50 outline-none font-medium text-gray-700 dark:text-gray-200 transition-all resize-none shadow-inner placeholder:text-gray-400/80 text-[15px] leading-relaxed" 
+                    />
+                </div>
+            </div>
+
+            <div className="w-full mt-10 text-center pb-16">
+                <button 
+                    onClick={startPipeline} 
+                    className="group relative inline-flex items-center justify-center gap-3 bg-[#1d1d1f] dark:bg-white text-white dark:text-[#1d1d1f] font-bold py-4 px-12 rounded-full shadow-xl hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-0.5 active:scale-95 transition-all duration-300 text-base font-display overflow-hidden"
+                >
+                    <span className="relative z-10 flex items-center gap-2">
+                        Extract Data from {files.length} {files.length > 1 ? 'Files' : 'File'}
+                    </span>
+                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+                </button>
             </div>
           </div>
         );
@@ -451,6 +476,8 @@ function App() {
     }
   }, [processingState, files, extractedData, error, selectedTemplate, description, activePresetId, activePresetName, stats, history, classificationResult, batchResults, currentlyProcessingFileIndex, handleFileChange, handleRemoveFile, handleNewUpload, handleReprocess, handleSelectHistoryItem, clearHistory, settings.presets, settings.documentLanguage, tipIndex, isLeftOpen, isRightOpen, toggleLeftSidebar, toggleRightSidebar]);
   
+  const isResultsView = processingState === 'results';
+
   return (
     <div 
         className={`h-screen w-screen flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 overflow-hidden transition-colors duration-300 font-sans text-[var(--text-primary)] ${settings.highContrast ? 'high-contrast' : ''}`}
@@ -461,7 +488,7 @@ function App() {
             <Header 
                 onHomeClick={handleNewUpload} 
             />
-            <main className="flex-1 overflow-y-auto ios-scroll w-full relative z-20">
+            <main className={`flex-1 w-full relative z-20 ${isResultsView ? 'overflow-hidden' : 'overflow-y-auto ios-scroll'}`}>
                 {renderContent}
             </main>
 

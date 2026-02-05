@@ -49,6 +49,7 @@
       margin: 0;
       padding: 0;
       overflow: hidden; /* App handles scrolling */
+      overscroll-behavior-y: none; /* Prevent iOS bounce/refresh on body */
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       background-color: rgb(var(--background-rgb));
@@ -135,9 +136,10 @@
       letter-spacing: -0.025em;
     }
 
-    /* Scrollbar Styling */
+    /* Scrollbar Styling & Behaviors */
     .ios-scroll {
       -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
       scrollbar-width: thin;
       scrollbar-color: rgba(150,150,150,0.3) transparent;
     }
@@ -151,6 +153,13 @@
     .ios-scroll::-webkit-scrollbar-thumb {
       background-color: rgba(150,150,150,0.3);
       border-radius: 20px;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
     }
 
     /* Custom Utilities for Glassmorphism */

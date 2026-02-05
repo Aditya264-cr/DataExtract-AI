@@ -1,9 +1,10 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { DocumentIcon } from '../icons/DocumentIcon';
 import { ChevronRightIcon } from '../icons/ChevronRightIcon';
 import { TrashIcon } from '../icons/TrashIcon';
 import { Tooltip } from '../ui/Tooltip';
+import { PhotoIcon } from '../icons/PhotoIcon';
 
 interface RecentExtractionsProps {
   history: any[];
@@ -23,6 +24,43 @@ export const RecentExtractions: React.FC<RecentExtractionsProps> = ({ history, o
     if (diffInHours < 24) return `${diffInHours}h ago`;
     const diffInDays = Math.floor(diffInHours / 24);
     return `${diffInDays}d ago`;
+  };
+
+  const getDocIcon = (docType: string, fileName: string) => {
+      // Determine style based on docType or file extension
+      const isImage = fileName.match(/\.(jpg|jpeg|png|webp)$/i);
+      const type = docType.toLowerCase();
+      
+      let icon = <DocumentIcon className="w-6 h-6 text-white" />;
+      let gradient = "from-blue-500 to-indigo-600";
+      let initials = "DOC";
+
+      if (isImage) {
+          icon = <PhotoIcon className="w-6 h-6 text-white" />;
+          gradient = "from-purple-500 to-pink-600";
+          initials = "IMG";
+      } else if (type.includes('invoice') || type.includes('receipt')) {
+          gradient = "from-emerald-500 to-teal-600";
+          initials = "INV";
+      } else if (type.includes('resume') || type.includes('cv')) {
+          gradient = "from-orange-500 to-amber-600";
+          initials = "CV";
+      } else if (type.includes('contract') || type.includes('agreement')) {
+          gradient = "from-slate-700 to-slate-900";
+          initials = "LEG";
+      }
+
+      return (
+          <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center flex-shrink-0 bg-gradient-to-br ${gradient} shadow-md relative overflow-hidden group-hover:scale-105 transition-transform duration-300`}>
+              <div className="absolute top-0 right-0 p-1 opacity-20">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19 13h-6v6l-2-2l2-2l-4-4l6-6v6h6l-2 2z"/>
+                  </svg>
+              </div>
+              {icon}
+              <span className="text-[8px] font-black text-white/90 mt-[-2px] tracking-wider">{initials}</span>
+          </div>
+      );
   };
 
   return (
@@ -63,19 +101,20 @@ export const RecentExtractions: React.FC<RecentExtractionsProps> = ({ history, o
                 className="w-full text-left p-3 pr-4 glass-card rounded-[1.25rem] flex items-center justify-between hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:scale-[1.01] transition-all duration-300 group"
               >
                 <div className="flex items-center gap-4 overflow-hidden">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-md`}>
-                    <DocumentIcon className="w-6 h-6" />
-                  </div>
+                  {getDocIcon(item.docType, item.fileNames[0] || 'file')}
                   <div className="truncate flex-1 min-w-0">
-                    <p className="font-bold text-[#1d1d1f] dark:text-white text-[15px] truncate tracking-tight">{item.fileNames.join(', ')}</p>
+                    <p className="font-bold text-[#1d1d1f] dark:text-white text-[15px] truncate tracking-tight group-hover:text-[#007AFF] transition-colors">{item.fileNames.join(', ')}</p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[11px] font-bold text-[#007AFF] dark:text-blue-300 uppercase tracking-wider">{item.docType}</span>
+                      <span className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{item.docType}</span>
                       <span className="w-0.5 h-0.5 rounded-full bg-gray-400"></span>
                       <span className="text-[11px] text-[#86868b] dark:text-gray-400 font-medium">{getRelativeTime(item.timestamp)}</span>
                     </div>
                   </div>
                 </div>
-                <ChevronRightIcon className="w-4 h-4 text-gray-400 group-hover:text-[#007AFF] transition-colors" />
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-gray-300 dark:text-gray-600 group-hover:text-[#007AFF] transition-colors uppercase tracking-widest hidden sm:block">Open</span>
+                    <ChevronRightIcon className="w-4 h-4 text-gray-400 group-hover:text-[#007AFF] transition-colors" />
+                </div>
               </button>
             ))
         )}

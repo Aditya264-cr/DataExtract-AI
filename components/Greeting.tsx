@@ -1,118 +1,83 @@
 
 import React, { useState, useEffect } from 'react';
-import { SunIcon } from './icons/SunIcon';
-import { MoonIcon } from './icons/MoonIcon';
-import { SunRiseIcon } from './icons/SunRiseIcon';
 
 const getSubtitleForTime = (hour: number): string => {
-    let options: string[] = [];
-    
     // Morning: 05:00 – 12:00
     if (hour >= 5 && hour < 12) {
-        options = [
-            "Ready to bring clarity to the day ahead?",
-            "A fresh start to get things organized.",
-            "Let’s make today count with a clean slate.",
-            "Perfect time to get your information in order.",
-            "Let's set a productive tone for the day."
-        ];
+        return "Ready to bring clarity to the day ahead?";
     } 
     // Afternoon: 12:00 – 17:00
     else if (hour >= 12 && hour < 17) {
-        options = [
-            "Keeping the momentum going with clear focus.",
-            "Let’s help you power through the rest of the day.",
-            "Making steady progress on what matters most.",
-            "Let's get everything sorted and streamlined.",
-            "Time to turn busy work into done work."
-        ];
+        return "Keeping the momentum going with clear focus.";
     } 
     // Evening: 17:00 – 21:00
     else if (hour >= 17 && hour < 21) {
-        options = [
-            "Let’s help you wrap things up smoothly.",
-            "A calm moment to get everything organized.",
-            "Finishing the day with a clear mind.",
-            "Let's tidy up the details for a fresh tomorrow.",
-            "Getting the last few things settled."
-        ];
+        return "Let’s tidy up the details for a fresh tomorrow.";
     } 
     // Night: 21:00 – 05:00
     else {
-        options = [
-            "Quiet hours are perfect for finding clarity.",
-            "We are here to support your late-night focus.",
-            "Let's make this late session worth it.",
-            "The world is quiet, let's get this sorted.",
-            "Here to help you cross the finish line."
-        ];
+        return "Quiet hours are perfect for finding clarity.";
     }
-    
-    // Fallback
-    if (options.length === 0) return "Let’s turn your documents into something clear and useful.";
-    
-    return options[Math.floor(Math.random() * options.length)];
 };
 
 export const Greeting: React.FC = () => {
-    const [greetingData, setGreetingData] = useState<{ 
-        icon: React.ReactNode; 
-        timeWord: string; 
-        gradientClass: string;
+    const [timeData, setTimeData] = useState<{ 
+        word: string; 
+        gradient: string;
     } | null>(null);
     const [subtitle, setSubtitle] = useState<string>("");
 
     useEffect(() => {
         const hour = new Date().getHours();
         
-        let timeWord = "";
-        let gradientClass = "";
-        let icon: React.ReactNode = null;
+        let word = "";
+        let gradient = "";
 
-        // Morning: 05:00 – 12:00
+        // Morning: Soft sky blue to light cyan
         if (hour >= 5 && hour < 12) {
-            timeWord = "Morning";
-            // Soft Green -> Teal -> Light Blue
-            gradientClass = "from-emerald-400 via-teal-400 to-sky-400 dark:from-emerald-300 dark:via-teal-300 dark:to-sky-300";
-            icon = <SunRiseIcon className="w-8 h-8 text-teal-500/80" />;
+            word = "Morning";
+            gradient = "from-sky-400 to-cyan-300"; 
         } 
-        // Afternoon: 12:00 – 17:00
+        // Afternoon: Warm yellow to orange
         else if (hour >= 12 && hour < 17) {
-            timeWord = "Afternoon";
-            // Warm Yellow -> Orange -> Soft Coral
-            gradientClass = "from-amber-400 via-orange-400 to-rose-400 dark:from-amber-300 dark:via-orange-300 dark:to-rose-300";
-            icon = <SunIcon className="w-8 h-8 text-orange-500/80" />;
+            word = "Afternoon";
+            gradient = "from-yellow-400 to-orange-400";
         } 
-        // Evening: 17:00 – 21:00
+        // Evening: Soft orange to pinkish purple
         else if (hour >= 17 && hour < 21) {
-            timeWord = "Evening";
-            // Indigo -> Purple -> Blue
-            gradientClass = "from-indigo-400 via-purple-400 to-blue-500 dark:from-indigo-300 dark:via-purple-300 dark:to-blue-400";
-            icon = <MoonIcon className="w-8 h-8 text-indigo-500/80" />;
+            word = "Evening";
+            gradient = "from-orange-400 to-fuchsia-500";
         } 
-        // Night: 21:00 – 05:00
+        // Night: Deep indigo to violet
         else {
-            timeWord = "Night";
-            // Deep Violet -> Fuchsia -> Indigo
-            gradientClass = "from-violet-400 via-fuchsia-400 to-indigo-500 dark:from-violet-300 dark:via-fuchsia-300 dark:to-indigo-400";
-            icon = <MoonIcon className="w-8 h-8 text-violet-500/80" />;
+            word = "Night";
+            gradient = "from-indigo-500 to-violet-500";
         }
 
-        setGreetingData({ icon, timeWord, gradientClass });
+        setTimeData({ word, gradient });
         setSubtitle(getSubtitleForTime(hour));
     }, []);
 
-    if (!greetingData) return null;
+    if (!timeData) return null;
 
     return (
-        <div className="w-full max-w-lg mx-auto my-12 animate-fade-in text-center relative z-10">
-            <div className="flex items-center justify-center gap-3 mb-3">
-                {greetingData.icon}
-                <h2 className="text-5xl font-semibold tracking-tighter font-display text-[#1d1d1f] dark:text-white">
-                    Good <span className={`bg-gradient-to-r ${greetingData.gradientClass} bg-clip-text text-transparent pb-1`}>{greetingData.timeWord}</span>
-                </h2>
-            </div>
-            <p className="text-xl leading-relaxed text-[#86868b] dark:text-gray-400 max-w-[95%] mx-auto font-medium tracking-tight">
+        <div className="w-full max-w-3xl mx-auto my-16 text-center relative z-10 flex flex-col items-center justify-center animate-slide-in">
+            {/* Ambient Glow: Matches text gradient exactly */}
+            <div 
+                className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-24 bg-gradient-to-r ${timeData.gradient} blur-[60px] opacity-20 dark:opacity-25 rounded-full pointer-events-none select-none`}
+                aria-hidden="true"
+            />
+
+            {/* Main Greeting */}
+            <h2 className="relative text-6xl md:text-7xl font-semibold tracking-tighter font-display mb-6 select-none">
+                <span className="text-[#111827] dark:text-white">Good</span>{" "}
+                <span className={`bg-gradient-to-r ${timeData.gradient} bg-clip-text text-transparent`}>
+                    {timeData.word}
+                </span>
+            </h2>
+
+            {/* Subtitle */}
+            <p className="relative text-lg text-gray-500 dark:text-gray-400 font-medium tracking-wide leading-relaxed max-w-lg mx-auto opacity-90">
                 {subtitle}
             </p>
         </div>

@@ -32,6 +32,27 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
 
     const activePresetName = settings.presets.find(p => p.id === activePresetId)?.name;
 
+    const suggestions = [
+        "Extract line items as a table",
+        "Identify all dates and deadlines",
+        "Summarize legal clauses",
+        "Ignore header and footer info",
+        "Find total amount due"
+    ];
+
+    const handleAddSuggestion = (text: string) => {
+        // Smart append logic
+        let newDescription = description.trim();
+        if (newDescription.length > 0 && !newDescription.endsWith('.') && !newDescription.endsWith(' ')) {
+            newDescription += '. ';
+        } else if (newDescription.length > 0 && newDescription.endsWith('.')) {
+             newDescription += ' ';
+        }
+        
+        newDescription += text;
+        setDescription(newDescription);
+    };
+
     const handleDrag = useCallback((e: React.DragEvent) => {
         e.preventDefault(); e.stopPropagation();
         if (e.type === 'dragenter' || e.type === 'dragover') setIsDragging(true);
@@ -68,7 +89,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                 onClick={() => fileInputRef.current?.click()}
             >
                 <div className="flex flex-col items-center justify-center space-y-7 relative z-10">
-                    <div className={`p-7 rounded-[2.5rem] bg-gradient-to-br from-[#007AFF] to-[#5856D6] text-white shadow-lg transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isDragging ? 'scale-110 rotate-3' : 'group-hover:scale-110 group-hover:rotate-3'}`}>
+                    <div className={`p-7 rounded-[2.5rem] bg-[#1d1d1f] dark:bg-white text-white dark:text-[#1d1d1f] shadow-lg transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isDragging ? 'scale-110 rotate-3' : 'group-hover:scale-110 group-hover:rotate-3'}`}>
                         <ArrowUpTrayIcon className="w-12 h-12" />
                     </div>
                     <div>
@@ -130,8 +151,21 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="e.g., Extract line items and tax summaries, ignoring addresses."
-                    className="relative w-full h-28 p-6 bg-white/60 dark:bg-black/20 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-3xl text-base focus:ring-4 focus:ring-[#007AFF]/20 focus:border-[#007AFF] focus:bg-white dark:focus:bg-black/40 outline-none transition-all resize-none placeholder:text-gray-400 dark:placeholder:text-gray-500 font-medium text-[#1d1d1f] dark:text-gray-200 shadow-sm"
+                    className="relative w-full h-32 p-6 bg-white/60 dark:bg-black/20 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-3xl text-base focus:ring-4 focus:ring-[#007AFF]/20 focus:border-[#007AFF] focus:bg-white dark:focus:bg-black/40 outline-none transition-all resize-none placeholder:text-gray-400 dark:placeholder:text-gray-500 font-medium text-[#1d1d1f] dark:text-gray-200 shadow-sm"
                 />
+
+                <div className="mt-4 flex flex-wrap gap-2 px-2">
+                     <span className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 py-1.5 mr-1">Try adding:</span>
+                    {suggestions.map((text) => (
+                        <button
+                            key={text}
+                            onClick={() => handleAddSuggestion(text)}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-gray-600 dark:text-gray-300 hover:bg-[#007AFF]/10 hover:text-[#007AFF] hover:border-[#007AFF]/20 transition-all active:scale-95"
+                        >
+                            {text}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             <PresetEditorModal isOpen={isSavePresetOpen} onClose={() => setIsSavePresetOpen(false)} onSave={handleSaveCurrentAsPreset} preset={{ id: '', name: '', docType: '', prompt: description, icon: '📝' }} />

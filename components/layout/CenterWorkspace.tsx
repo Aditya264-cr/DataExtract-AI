@@ -7,12 +7,7 @@ import { SettingsContext } from '../../contexts/SettingsContext';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { AISummary } from '../AISummary';
 import { SaveTemplateModal } from '../ui/SaveTemplateModal';
-import { ArrowDownTrayIcon } from '../icons/ArrowDownTrayIcon';
-import { ClipboardDocumentIcon } from '../icons/ClipboardDocumentIcon';
-import { ChevronDownIcon } from '../icons/ChevronDownIcon';
-import { CodeBracketIcon } from '../icons/CodeBracketIcon';
 import { TableCellsIcon } from '../icons/TableCellsIcon';
-import { DocumentTextIcon } from '../icons/DocumentTextIcon';
 import { PhotoIcon } from '../icons/PhotoIcon';
 import { ViewColumnsIcon } from '../icons/ViewColumnsIcon';
 import { ExclamationTriangleIcon } from '../icons/ExclamationTriangleIcon';
@@ -22,20 +17,16 @@ import { flattenObject, extractTables, updateNestedState, updateTableData, Disco
 import { formatAsOfficialDocument } from '../../utils/textFormatter';
 import { MagnifyingGlassIcon } from '../icons/MagnifyingGlassIcon';
 import { XMarkIcon } from '../icons/XMarkIcon';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import html2canvas from 'html2canvas';
-import * as XLSX from 'xlsx';
 import { Notification } from '../ui/Notification';
-import { logAuditEvent, getAuditLog, generateApprovalStamp, ApprovalStamp } from '../../utils/auditLogger';
+import { logAuditEvent } from '../../utils/auditLogger';
 import { LightBulbIcon } from '../icons/LightBulbIcon';
 import { ExplanationModal } from '../ui/ExplanationModal';
-import { CheckCircleIcon } from '../icons/CheckCircleIcon';
 import { Tooltip } from '../ui/Tooltip';
 import { CalendarIcon } from '../icons/CalendarIcon';
 import { MapPinIcon } from '../icons/MapPinIcon';
 import { EnvelopeIcon } from '../icons/EnvelopeIcon';
 import { PhoneIcon } from '../icons/PhoneIcon';
+import { ArrowDownTrayIcon } from '../icons/ArrowDownTrayIcon';
 
 interface CenterWorkspaceProps {
     initialData: ExtractedData;
@@ -53,11 +44,6 @@ const outputFormats: { id: OutputFormat; label: string; tooltip: string }[] = [
     { id: 'grid', label: 'Grid', tooltip: 'Tabular spreadsheet view' },
     { id: 'text', label: 'Report', tooltip: 'Official document text' },
     { id: 'json', label: 'JSON', tooltip: 'Raw technical structure' },
-];
-
-const downloadOptions = [
-    { format: 'pdf', label: 'PDF Document', description: 'Professional layout & summary', icon: DocumentTextIcon },
-    { format: 'json', label: 'JSON Data', description: 'Raw structured output', icon: CodeBracketIcon },
 ];
 
 const ConfidenceBadge: React.FC<{ score: number | undefined }> = ({ score }) => {
@@ -90,31 +76,16 @@ const EditableInput = ({
     />
 );
 
-const prepareDataForTable = (data: any[]) => {
-    return data.map((row: any) => {
-        const newRow: any = {};
-        for (const key in row) {
-            const val = row[key];
-            newRow[key] = (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val;
-        }
-        return newRow;
-    });
-};
-
 export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, editedData, onDataChange, file, onNewUpload, onReprocess }) => {
     const { settings } = useContext(SettingsContext);
     const [activeFormat, setActiveFormat] = useState<OutputFormat>('key_value');
-    const [copied, setCopied] = useState(false);
     const [editedFields, setEditedFields] = useState(new Set<string>());
-    const [isDownloadOpen, setIsDownloadOpen] = useState(false);
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
     const [textContent, setTextContent] = useState('');
     const [isTextDirty, setIsTextDirty] = useState(false);
     const [summary, setSummary] = useState<AISummaryData | null>(null);
     const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(true);
     const [activeField, setActiveField] = useState<string | null>(null);
-    const [isApproved, setIsApproved] = useState(false);
-    const [approvalStamp, setApprovalStamp] = useState<ApprovalStamp | null>(null);
     const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info'; action?: any } | null>(null);
     const [isExplanationModalOpen, setIsExplanationModalOpen] = useState(false);
     const [explanationTarget, setExplanationTarget] = useState<{ fieldName: string; fieldValue?: string } | null>(null);
@@ -130,15 +101,10 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
 
     const tableRef = useRef<HTMLTableElement>(null);
     const editorRef = useRef<HTMLDivElement>(null);
-    const downloadMenuRef = useRef<HTMLDivElement>(null);
     const resultsContentRef = useRef<HTMLDivElement>(null);
 
     const validationResult = useMemo(() => validateDocumentLogic(flattenObject(editedData)), [editedData]);
     
-    useClickOutside(downloadMenuRef, () => {
-        if (isDownloadOpen) setIsDownloadOpen(false);
-    });
-
     // Reset table index if data structure changes significantly
     useEffect(() => {
         if (activeTableIndex >= tables.length && tables.length > 0) {
@@ -166,12 +132,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
             fieldsEdited: [flattenedKey],
             newValue: value
         });
-        
-        if (isApproved) {
-            setIsApproved(false);
-            setApprovalStamp(null);
-            setNotification({ message: "Changes detected. Please re-approve.", type: 'info' });
-        }
     };
 
     const handleGridChange = (rowIndex: number, key: string, value: string) => {
@@ -187,12 +147,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
             fieldsEdited: [cellKey],
             newValue: value
         });
-
-        if (isApproved) {
-            setIsApproved(false);
-            setApprovalStamp(null);
-            setNotification({ message: "Changes detected. Please re-approve.", type: 'info' });
-        }
     };
 
     const handleInputBlur = (key: string, value: string, rowIndex?: number) => {
@@ -205,24 +159,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
             }
             setNotification({ message: 'Auto-formatted value for consistency', type: 'info' });
         }
-    };
-
-    const handleApprove = () => {
-        const errors = validationResult.issues.filter(i => i.severity === 'error').length;
-        const warnings = validationResult.issues.filter(i => i.severity === 'warning').length;
-
-        if (settings.systemMode === 'ENTERPRISE' && errors > 0) {
-             setNotification({ message: "Cannot approve document with critical validation errors in Enterprise Mode.", type: 'error' });
-             return;
-        }
-
-        const stamp = generateApprovalStamp(settings.systemMode, errors, warnings);
-        setApprovalStamp(stamp);
-        setIsApproved(true);
-        logAuditEvent('APPROVE', settings.systemMode, { 
-            validationSummary: { errors, warnings } 
-        });
-        setNotification({ message: "Document Approved & Locked", type: 'success' });
     };
 
     // --- Action Button Logic ---
@@ -347,92 +283,8 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         document.body.removeChild(link);
     };
 
-    const handleDownload = async (format: string) => {
-        setIsDownloadOpen(false);
-        const fileName = `extraction_${editedData.documentType.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`;
-
-        switch (format) {
-            case 'json': {
-                const jsonContent = JSON.stringify({ meta: editedData.meta, data: editedData.structuredData, auditLog: getAuditLog() }, null, 2);
-                const blob = new Blob([jsonContent], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a'); link.href = url; link.download = `${fileName}.json`; link.click();
-                break;
-            }
-            case 'txt': {
-                const txt = formatAsOfficialDocument(editedData);
-                const blob = new Blob([txt], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a'); link.href = url; link.download = `${fileName}.txt`; link.click();
-                break;
-            }
-            case 'csv': {
-                const flattened = flattenObject(editedData);
-                const csvRows = [['Field', 'Value']];
-                Object.entries(flattened).forEach(([k, v]) => { csvRows.push([k, String(v).replace(/"/g, '""')]); });
-                const csvContent = csvRows.map(e => `"${e[0]}","${e[1]}"`).join('\n');
-                const blob = new Blob([csvContent], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a'); link.href = url; link.download = `${fileName}.csv`; link.click();
-                break;
-            }
-            case 'xlsx': {
-                 const wb = XLSX.utils.book_new();
-                 const flattened = flattenObject(editedData);
-                 const kvData = Object.entries(flattened).map(([Key, Value]) => ({ Key, Value: String(Value) }));
-                 const wsKV = XLSX.utils.json_to_sheet(kvData);
-                 XLSX.utils.book_append_sheet(wb, wsKV, "Summary");
-                 tables.forEach((table, i) => {
-                     if (table.data.length > 0) {
-                        const wsTable = XLSX.utils.json_to_sheet(prepareDataForTable(table.data));
-                        XLSX.utils.book_append_sheet(wb, wsTable, table.name.substring(0, 31) || `Table ${i+1}`);
-                     }
-                 });
-                 XLSX.writeFile(wb, `${fileName}.xlsx`);
-                 break;
-            }
-            case 'pdf': {
-                 const doc = new jsPDF();
-                 doc.setFontSize(16);
-                 doc.text(editedData.documentType, 14, 20);
-                 doc.setFontSize(10);
-                 doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 28);
-                 doc.text(`Confidence: ${editedData.confidenceScore}%`, 14, 33);
-                 let y = 45;
-                 tables.forEach((table) => {
-                     if (table.data.length > 0) {
-                         doc.setFontSize(12); doc.text(table.name, 14, y); y += 5;
-                         const headers = Object.keys(table.data[0]);
-                         const body = table.data.map(row => Object.values(row).map(v => String(v)));
-                         autoTable(doc, { startY: y, head: [headers], body: body, margin: { top: 10 }, styles: { fontSize: 8 } });
-                         // @ts-ignore
-                         y = doc.lastAutoTable.finalY + 15;
-                     }
-                 });
-                 if (tables.length === 0) {
-                     const splitText = doc.splitTextToSize(formatAsOfficialDocument(editedData), 180);
-                     doc.text(splitText, 14, y);
-                 }
-                 doc.save(`${fileName}.pdf`);
-                 break;
-            }
-            case 'png': {
-                 if (resultsContentRef.current) {
-                     const originalOverflow = resultsContentRef.current.style.overflow;
-                     resultsContentRef.current.style.overflow = 'visible';
-                     const canvas = await html2canvas(resultsContentRef.current, { backgroundColor: settings.highContrast ? '#000000' : '#ffffff', scale: 2 });
-                     resultsContentRef.current.style.overflow = originalOverflow;
-                     const link = document.createElement('a'); link.download = `${fileName}.png`; link.href = canvas.toDataURL(); link.click();
-                 }
-                 break;
-            }
-        }
-    };
-
     useEffect(() => {
         setIsTextDirty(false); 
-        setIsApproved(false);
-        setApprovalStamp(null);
         if (settings.showSummary) {
             setIsSummaryLoading(true);
             generateSummaryFromData(editedData).then(setSummary).finally(() => setIsSummaryLoading(false));
@@ -473,22 +325,11 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         return () => { editor.removeEventListener('click', handleEditorClick); };
     }, [triggerExplanation, activeFormat]);
 
-    const formattedDataForCopy = useMemo(() => {
-        const meta = { source: "DataExtract AI", generatedAt: new Date().toISOString() };
-        switch (activeFormat) {
-            case 'json': 
-            case 'key_value':
-            case 'grid': return JSON.stringify({ _meta: meta, _approval: approvalStamp, data: editedData.structuredData }, null, 2);
-            case 'text': return formatAsOfficialDocument(editedData);
-            default: return JSON.stringify({ _meta: meta, data: editedData.structuredData }, null, 2);
-        }
-    }, [activeFormat, editedData, approvalStamp]);
-
     const isSearchable = activeFormat === 'key_value' || activeFormat === 'grid';
 
     const renderData = (format: OutputFormat, dataToRender: ExtractedData) => {
         switch (format) {
-            case 'json': return <div className="p-6 h-full overflow-auto"><pre className="text-sm font-mono text-gray-800 dark:text-gray-300">{JSON.stringify(dataToRender.structuredData, null, 2)}</pre></div>;
+            case 'json': return <div className="p-6 h-full overflow-auto ios-scroll"><pre className="text-sm font-mono text-gray-800 dark:text-gray-300">{JSON.stringify(dataToRender.structuredData, null, 2)}</pre></div>;
             case 'text': return (
                 <div className="flex flex-col h-full bg-white dark:bg-zinc-900 relative">
                     <div ref={editorRef} contentEditable onInput={(e) => { setTextContent(e.currentTarget.innerHTML); setIsTextDirty(true); }} className="flex-grow p-10 outline-none overflow-y-auto ios-scroll max-w-none min-h-[400px] text-gray-800 dark:text-gray-200 selection:bg-yellow-200/50 dark:selection:bg-yellow-900/30" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: '0.9rem' }} />
@@ -509,7 +350,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                 });
                 if (filteredEntries.length === 0) return <div className="p-12 text-center text-gray-500 font-medium">No matching fields found.</div>;
                 return (
-                    <div className="p-6 space-y-4 h-full overflow-auto">
+                    <div className="p-6 space-y-4 h-full overflow-auto ios-scroll">
                         {!showOnlyIssues && validationResult.issues.length > 0 && (
                             <div className="mb-6 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl space-y-2">
                                 <div className="flex items-center gap-2 mb-2">
@@ -600,7 +441,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                             </div>
                             <button onClick={() => exportTableToCSV(currentTable)} className="p-1.5 text-gray-500 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"><ArrowDownTrayIcon className="w-4 h-4" /></button>
                         </div>
-                        <div className="flex-grow overflow-auto">
+                        <div className="flex-grow overflow-auto ios-scroll">
                             <table ref={tableRef} className="w-full text-left border-collapse min-w-[600px]">
                                 <thead className="sticky top-0 bg-white dark:bg-zinc-900 z-10 shadow-sm">
                                     <tr className="border-b border-black/5 dark:border-white/5">{keys.map(k => <th key={k} className="p-4 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 bg-gray-50/80 dark:bg-zinc-800/80 backdrop-blur-sm">{k}</th>)}</tr>
@@ -706,10 +547,10 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
 
                         <div className="mt-8 pt-4 pb-2 border-t border-dashed border-gray-200 dark:border-zinc-700 flex justify-end opacity-60 hover:opacity-100 transition-opacity select-none">
                             <span className="text-[10px] font-mono text-gray-400 dark:text-zinc-500 uppercase tracking-widest">
-                                {WATERMARK_TEXT} {approvalStamp && `| Approved by: ${approvalStamp.approvedBy}`}
+                                {WATERMARK_TEXT}
                             </span>
                         </div>
-                        <div className="h-24" />
+                        <div className="h-4" /> {/* Reduced bottom padding as footer is removed */}
                     </div>
                 </div>
                 {showSplitView && (
@@ -724,56 +565,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                     </div>
                 )}
             </div>
-            
-            {!showSplitView && (
-                <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-white via-white/95 to-transparent dark:from-zinc-900 dark:via-zinc-900/95 pt-12 pb-4 px-4 pointer-events-none">
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 w-full max-w-2xl mx-auto p-2 bg-white/60 dark:bg-zinc-800/60 backdrop-blur-2xl rounded-[2.5rem] border border-white/20 dark:border-white/5 shadow-2xl transition-all pointer-events-auto">
-                        {!isApproved ? (
-                            <Tooltip text="Lock in corrections & finalize" position="top">
-                                <button onClick={handleApprove} className="w-full flex items-center justify-center gap-2.5 py-4 px-8 bg-[#34C759] text-white font-bold rounded-[2rem] hover:shadow-glow-blue-strong active:scale-95 transition-all shadow-lg whitespace-nowrap">
-                                    <CheckCircleIcon className="w-5 h-5" /> Approve & Finalize
-                                </button>
-                            </Tooltip>
-                        ) : (
-                            <div className="flex flex-wrap sm:flex-nowrap items-center justify-center gap-3 w-full">
-                                <Tooltip text="Copy output to clipboard" position="top">
-                                    <button onClick={() => { navigator.clipboard.writeText(formattedDataForCopy); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="w-full sm:flex-1 min-w-[140px] flex items-center justify-center gap-2.5 py-3.5 px-6 bg-black/5 dark:bg-white/5 text-gray-900 dark:text-gray-100 font-bold rounded-[2rem] hover:bg-black/10 transition-all">
-                                        <ClipboardDocumentIcon className="w-5 h-5"/> {copied ? 'Copied' : 'Copy'}
-                                    </button>
-                                </Tooltip>
-                                
-                                <div ref={downloadMenuRef} className="relative w-full sm:flex-1 min-w-[140px]">
-                                    <Tooltip text="Save as file" position="top">
-                                        <button onClick={() => setIsDownloadOpen(p => !p)} className={`w-full flex items-center justify-center gap-2.5 py-3.5 px-6 font-bold rounded-[2rem] transition-all border ${isDownloadOpen ? 'bg-white text-[#007AFF] border-[#007AFF] shadow-glow-blue-strong' : 'bg-[#007AFF] text-white border-transparent hover:shadow-glow-blue-strong active:scale-95'}`}>
-                                            <ArrowDownTrayIcon className="w-5 h-5"/> Download
-                                            <ChevronDownIcon className={`w-4 h-4 transition-transform duration-300 ${isDownloadOpen ? 'rotate-180' : ''}`} />
-                                        </button>
-                                    </Tooltip>
-                                    
-                                    <div className={`absolute bottom-full mb-4 left-1/2 -translate-x-1/2 w-72 bg-white/80 dark:bg-[#1C1C1E]/80 backdrop-blur-3xl rounded-3xl shadow-[0_0_40px_-10px_rgba(0,0,0,0.2)] border border-white/20 dark:border-white/10 p-2 z-50 transition-all duration-300 cubic-bezier(0.32, 0.72, 0, 1) origin-bottom ${isDownloadOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
-                                        <div className="px-4 py-3 border-b border-black/5 dark:border-white/5 mb-1">
-                                            <h3 className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest text-center">Select Format</h3>
-                                        </div>
-                                        <div className="space-y-1 p-1">
-                                            {downloadOptions.map(({ format, label, description, icon: Icon }) => (
-                                                <button key={format} onClick={() => handleDownload(format)} className="w-full flex items-center gap-4 text-left p-3.5 hover:bg-white dark:hover:bg-white/10 rounded-2xl transition-all group/item border border-transparent hover:shadow-sm">
-                                                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center text-[#007AFF] dark:text-[#0A84FF] group-hover/item:scale-110 transition-transform duration-300">
-                                                        <Icon className="w-5 h-5" />
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-bold text-sm text-gray-900 dark:text-white">{label}</p>
-                                                        <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{description}</p>
-                                                    </div>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
