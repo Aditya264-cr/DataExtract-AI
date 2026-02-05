@@ -11,6 +11,22 @@ const MODEL_LITE = "gemini-flash-lite-latest"; // Low-latency, cost-effective
 const MODEL_STD = "gemini-3-flash-preview";    // Standard, tool-capable
 const MODEL_PRO = "gemini-3-pro-preview";      // High-intelligence, reasoning
 
+// Helper to robustly extract JSON from potentially Markdown-wrapped or dirty text
+const cleanJsonOutput = (text: string): string => {
+    if (!text) return "{}";
+    
+    // 1. Try to find the outermost JSON object bounds
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        return text.substring(firstBrace, lastBrace + 1);
+    }
+    
+    // 2. Fallback: Standard Markdown cleaning
+    return text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+};
+
 export const classifyDocument = async (files: UploadedFile[], language: string): Promise<{ docType: string; confidence: number; }> => {
     const languageHint = language !== 'auto' ? ` The document's primary language is ${language}.` : '';
     const prompt = `Identify the type of the document(s).${languageHint} Return a single JSON object with two keys: 'docType' (e.g., 'Invoice', 'Resume', 'Contract') and 'confidence' (0-100 certainty).`;
@@ -33,7 +49,7 @@ export const classifyDocument = async (files: UploadedFile[], language: string):
             throw new Error("Classification returned empty response.");
         }
         
-        const parsed = JSON.parse(responseText.trim());
+        const parsed = JSON.parse(cleanJsonOutput(responseText));
         return {
             docType: parsed.docType || "Uncategorized",
             confidence: parsed.confidence || 0,
@@ -209,7 +225,7 @@ ${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)
             throw new Error("Extraction engine returned an empty response.");
         }
         
-        const parsed = JSON.parse(responseText.trim().replace(/^```json\n/, '').replace(/\n```$/, ''));
+        const parsed = JSON.parse(cleanJsonOutput(responseText));
         
         // --- Post-Processing: Map to ExtractedData Interface & Extract Highlights ---
         const highlights: Highlight[] = [];
@@ -308,7 +324,7 @@ Return as JSON: { "summary": "string", "confidenceScore": number (0-100) }.
         });
         const responseText = response.text;
         if (responseText) {
-            return JSON.parse(responseText.trim()) as AISummaryData;
+            return JSON.parse(cleanJsonOutput(responseText)) as AISummaryData;
         }
         throw new Error("Summary generation returned an empty response.");
     } catch {
@@ -317,7 +333,11 @@ Return as JSON: { "summary": "string", "confidenceScore": number (0-100) }.
 };
 
 export const getExplanationForField = async (fieldName: string, fieldValue: string, files: UploadedFile[]): Promise<string> => {
-    const prompt = `Explain why "${fieldValue}" was extracted as "${fieldName}". Did you reconstruct this data from a mismatch? Is this a standard term? Be concise.`;
+    const prompt = `Explain the extraction of the field "${fieldName}" with value "${fieldValue}".
+1. Location: Where is this visually located in the document? (e.g., top-right, table header)
+2. Labeling: Is there an explicit label nearby (e.g., "Total:", "Date:")?
+3. Reasoning: Why is this value correct? Did you correct any OCR errors or formatting?
+Be concise and direct.`;
     const imageParts = await Promise.all(files.map(async (f) => ({ inlineData: { mimeType: f.file.type, data: await fileToBase64(f.file) } })));
     try {
         const response = await ai.models.generateContent({ 

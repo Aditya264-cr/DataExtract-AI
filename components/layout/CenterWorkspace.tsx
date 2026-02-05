@@ -32,9 +32,15 @@ import { LightBulbIcon } from '../icons/LightBulbIcon';
 import { ExplanationModal } from '../ui/ExplanationModal';
 import { CheckCircleIcon } from '../icons/CheckCircleIcon';
 import { Tooltip } from '../ui/Tooltip';
+import { CalendarIcon } from '../icons/CalendarIcon';
+import { MapPinIcon } from '../icons/MapPinIcon';
+import { EnvelopeIcon } from '../icons/EnvelopeIcon';
+import { PhoneIcon } from '../icons/PhoneIcon';
 
 interface CenterWorkspaceProps {
-    data: ExtractedData;
+    initialData: ExtractedData;
+    editedData: ExtractedData;
+    onDataChange: (newData: ExtractedData) => void;
     file: UploadedFile;
     onNewUpload: () => void;
     onReprocess: (editedData: ExtractedData) => void;
@@ -95,11 +101,10 @@ const prepareDataForTable = (data: any[]) => {
     });
 };
 
-export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, onNewUpload, onReprocess }) => {
+export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, editedData, onDataChange, file, onNewUpload, onReprocess }) => {
     const { settings } = useContext(SettingsContext);
     const [activeFormat, setActiveFormat] = useState<OutputFormat>('key_value');
     const [copied, setCopied] = useState(false);
-    const [editedData, setEditedData] = useState<ExtractedData>(data);
     const [editedFields, setEditedFields] = useState(new Set<string>());
     const [isDownloadOpen, setIsDownloadOpen] = useState(false);
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
@@ -148,16 +153,16 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
 
     const confidenceMap = useMemo(() => {
         const map = new Map<string, number>();
-        data.highlights?.forEach(h => { map.set(h.fieldName, h.confidence); });
+        initialData.highlights?.forEach(h => { map.set(h.fieldName, h.confidence); });
         return map;
-    }, [data.highlights]);
+    }, [initialData.highlights]);
 
     const handleKeyValueChange = (flattenedKey: string, value: string) => {
-        setEditedData(prev => updateNestedState(prev, flattenedKey, value));
+        onDataChange(updateNestedState(editedData, flattenedKey, value));
         setEditedFields(prev => new Set(prev).add(flattenedKey));
         
         logAuditEvent('EDIT', settings.systemMode, {
-            documentId: data.documentType,
+            documentId: editedData.documentType,
             fieldsEdited: [flattenedKey],
             newValue: value
         });
@@ -173,12 +178,12 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
         const currentTable = tables[activeTableIndex];
         if (!currentTable) return;
 
-        setEditedData(prev => updateTableData(prev, currentTable.path, rowIndex, key, value));
+        onDataChange(updateTableData(editedData, currentTable.path, rowIndex, key, value));
         const cellKey = `${currentTable.path || 'root'}-${rowIndex}-${key}`;
         setEditedFields(prev => new Set(prev).add(cellKey));
 
         logAuditEvent('EDIT', settings.systemMode, {
-            documentId: data.documentType,
+            documentId: editedData.documentType,
             fieldsEdited: [cellKey],
             newValue: value
         });
@@ -220,34 +225,62 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
         setNotification({ message: "Document Approved & Locked", type: 'success' });
     };
 
+    // --- Action Button Logic ---
+    const getActionForValue = (key: string, value: string) => {
+        if (!value || typeof value !== 'string') return null;
+        const lowerKey = key.toLowerCase();
+        
+        // 1. Email
+        if (lowerKey.includes('email') || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+             if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+                return { icon: EnvelopeIcon, label: "Send Email", action: () => window.open(`mailto:${value}`) };
+             }
+        }
+        // 2. Phone
+        if ((lowerKey.includes('phone') || lowerKey.includes('mobile') || lowerKey.includes('fax') || lowerKey.includes('contact')) && value.length > 5 && /[0-9]/.test(value)) {
+            return { icon: PhoneIcon, label: "Call", action: () => window.open(`tel:${value.replace(/[^\d+]/g, '')}`) };
+        }
+        // 3. Date -> Google Calendar
+        if ((lowerKey.includes('date') || lowerKey.includes('due') || lowerKey.includes('expires') || lowerKey.includes('schedule')) && !isNaN(Date.parse(value)) && /\d/.test(value)) {
+            return {
+                icon: CalendarIcon, label: "Add to Calendar",
+                action: () => {
+                    const date = new Date(value);
+                    if (isNaN(date.getTime())) return;
+                    const iso = date.toISOString().replace(/-|:|\.\d+/g, '');
+                    const dateStr = iso.slice(0, 8);
+                    const datesParam = `${dateStr}/${dateStr}`;
+                    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(key)}&dates=${datesParam}&details=${encodeURIComponent('Value: ' + value + '\nSource: ' + editedData.documentType)}`;
+                    window.open(url, '_blank');
+                }
+            };
+        }
+        // 4. Address -> Google Maps
+        if ((lowerKey.includes('address') || lowerKey.includes('location') || lowerKey.includes('city') || lowerKey.includes('street') || lowerKey.includes('venue')) && value.length > 5) {
+            if (!value.includes('http') && !/^[0-9]+$/.test(value)) {
+                return { icon: MapPinIcon, label: "Open Maps", action: () => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value.replace(/\n/g, ', '))}`, '_blank') };
+            }
+        }
+        return null;
+    };
+
     const generateTextSummary = useCallback((dataToSummarize: ExtractedData, currentActiveField: string | null): string => {
         const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-        
         let html = `<div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.6; color: inherit;">`;
-        
-        // Header
         html += `<h1 style="font-size: 1.25em; font-weight: 800; margin-bottom: 0.5em; text-transform: uppercase;">${dataToSummarize.documentType}</h1>`;
         html += `<div style="opacity: 0.5; margin-bottom: 1em;">------------------------------------</div>`;
         html += `<div style="margin-bottom: 1.5em;">Date: ${dateStr}<br/>Confidence Score: ${dataToSummarize.confidenceScore}%</div>`;
-
-        // Render Raw Text Summary as intro
         if (dataToSummarize.rawTextSummary) {
              html += `<div style="margin-bottom: 1.5em; font-style: italic;">"${dataToSummarize.rawTextSummary}"</div>`;
         }
-
         const createValueSpan = (key: string, val: any) => {
             const strVal = String(val);
             const isActive = currentActiveField === key;
             const bgClass = isActive ? 'background-color: rgba(255, 215, 0, 0.3);' : '';
             return `<span data-field-name="${key}" style="${bgClass} cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: rgba(100,100,100,0.5);">${strVal}</span>`;
         };
-
         const kvData = flattenObject(dataToSummarize);
-        
-        Object.entries(kvData).forEach(([k, v]) => {
-             html += `<div><strong>${k}:</strong> ${createValueSpan(k, v)}</div>`;
-        });
-
+        Object.entries(kvData).forEach(([k, v]) => { html += `<div><strong>${k}:</strong> ${createValueSpan(k, v)}</div>`; });
         html += `<div style="margin-top: 2em; opacity: 0.5;">------------------------------------</div>`;
         html += `<div>End of Report</div></div>`;
         return html;
@@ -271,14 +304,14 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
     const handleRegenerateSummary = useCallback(async () => {
         setIsSummaryLoading(true);
         try {
-            const newSummary = await generateSummaryFromData(data, true);
+            const newSummary = await generateSummaryFromData(editedData, true);
             setSummary(newSummary);
         } catch (error) {
             setNotification({ message: "Failed to regenerate summary.", type: 'error' });
         } finally {
             setIsSummaryLoading(false);
         }
-    }, [data]);
+    }, [editedData]);
 
     const handleExplainSummary = useCallback(async () => {
         if (!summary) return;
@@ -300,11 +333,9 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
         const headers = Object.keys(table.data[0]);
         const rows = table.data.map(row => headers.map(header => {
             const val = row[header];
-            // Handle commas and quotes in CSV
             const str = String(val ?? '').replace(/"/g, '""');
             return `"${str}"`;
         }).join(','));
-        
         const csvContent = [headers.join(','), ...rows].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -318,46 +349,31 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
 
     const handleDownload = async (format: string) => {
         setIsDownloadOpen(false);
-        const fileName = `extraction_${data.documentType.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`;
+        const fileName = `extraction_${editedData.documentType.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`;
 
         switch (format) {
             case 'json': {
-                const jsonContent = JSON.stringify({ 
-                    meta: data.meta, 
-                    data: editedData.structuredData, 
-                    auditLog: getAuditLog() 
-                }, null, 2);
+                const jsonContent = JSON.stringify({ meta: editedData.meta, data: editedData.structuredData, auditLog: getAuditLog() }, null, 2);
                 const blob = new Blob([jsonContent], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `${fileName}.json`;
-                link.click();
+                const link = document.createElement('a'); link.href = url; link.download = `${fileName}.json`; link.click();
                 break;
             }
             case 'txt': {
                 const txt = formatAsOfficialDocument(editedData);
                 const blob = new Blob([txt], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `${fileName}.txt`;
-                link.click();
+                const link = document.createElement('a'); link.href = url; link.download = `${fileName}.txt`; link.click();
                 break;
             }
             case 'csv': {
                 const flattened = flattenObject(editedData);
                 const csvRows = [['Field', 'Value']];
-                Object.entries(flattened).forEach(([k, v]) => {
-                     csvRows.push([k, String(v).replace(/"/g, '""')]);
-                });
+                Object.entries(flattened).forEach(([k, v]) => { csvRows.push([k, String(v).replace(/"/g, '""')]); });
                 const csvContent = csvRows.map(e => `"${e[0]}","${e[1]}"`).join('\n');
                 const blob = new Blob([csvContent], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `${fileName}.csv`;
-                link.click();
+                const link = document.createElement('a'); link.href = url; link.download = `${fileName}.csv`; link.click();
                 break;
             }
             case 'xlsx': {
@@ -366,54 +382,37 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                  const kvData = Object.entries(flattened).map(([Key, Value]) => ({ Key, Value: String(Value) }));
                  const wsKV = XLSX.utils.json_to_sheet(kvData);
                  XLSX.utils.book_append_sheet(wb, wsKV, "Summary");
-
                  tables.forEach((table, i) => {
                      if (table.data.length > 0) {
                         const wsTable = XLSX.utils.json_to_sheet(prepareDataForTable(table.data));
                         XLSX.utils.book_append_sheet(wb, wsTable, table.name.substring(0, 31) || `Table ${i+1}`);
                      }
                  });
-
                  XLSX.writeFile(wb, `${fileName}.xlsx`);
                  break;
             }
             case 'pdf': {
                  const doc = new jsPDF();
                  doc.setFontSize(16);
-                 doc.text(data.documentType, 14, 20);
+                 doc.text(editedData.documentType, 14, 20);
                  doc.setFontSize(10);
                  doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 28);
-                 doc.text(`Confidence: ${data.confidenceScore}%`, 14, 33);
-                 
+                 doc.text(`Confidence: ${editedData.confidenceScore}%`, 14, 33);
                  let y = 45;
-                 
                  tables.forEach((table) => {
                      if (table.data.length > 0) {
-                         doc.setFontSize(12);
-                         doc.text(table.name, 14, y);
-                         y += 5;
-                         
+                         doc.setFontSize(12); doc.text(table.name, 14, y); y += 5;
                          const headers = Object.keys(table.data[0]);
                          const body = table.data.map(row => Object.values(row).map(v => String(v)));
-                         
-                         autoTable(doc, {
-                             startY: y,
-                             head: [headers],
-                             body: body,
-                             margin: { top: 10 },
-                             styles: { fontSize: 8 },
-                         });
-                         
+                         autoTable(doc, { startY: y, head: [headers], body: body, margin: { top: 10 }, styles: { fontSize: 8 } });
                          // @ts-ignore
                          y = doc.lastAutoTable.finalY + 15;
                      }
                  });
-
                  if (tables.length === 0) {
                      const splitText = doc.splitTextToSize(formatAsOfficialDocument(editedData), 180);
                      doc.text(splitText, 14, y);
                  }
-
                  doc.save(`${fileName}.pdf`);
                  break;
             }
@@ -421,18 +420,9 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                  if (resultsContentRef.current) {
                      const originalOverflow = resultsContentRef.current.style.overflow;
                      resultsContentRef.current.style.overflow = 'visible';
-                     
-                     const canvas = await html2canvas(resultsContentRef.current, {
-                         backgroundColor: settings.highContrast ? '#000000' : '#ffffff',
-                         scale: 2
-                     });
-                     
+                     const canvas = await html2canvas(resultsContentRef.current, { backgroundColor: settings.highContrast ? '#000000' : '#ffffff', scale: 2 });
                      resultsContentRef.current.style.overflow = originalOverflow;
-                     
-                     const link = document.createElement('a');
-                     link.download = `${fileName}.png`;
-                     link.href = canvas.toDataURL();
-                     link.click();
+                     const link = document.createElement('a'); link.download = `${fileName}.png`; link.href = canvas.toDataURL(); link.click();
                  }
                  break;
             }
@@ -440,15 +430,14 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
     };
 
     useEffect(() => {
-        setEditedData(data);
         setIsTextDirty(false); 
         setIsApproved(false);
         setApprovalStamp(null);
         if (settings.showSummary) {
             setIsSummaryLoading(true);
-            generateSummaryFromData(data).then(setSummary).finally(() => setIsSummaryLoading(false));
+            generateSummaryFromData(editedData).then(setSummary).finally(() => setIsSummaryLoading(false));
         }
-    }, [data, settings.showSummary]);
+    }, [editedData, settings.showSummary]);
 
     const computedHtml = useMemo(() => {
         return generateTextSummary(editedData, activeField);
@@ -472,7 +461,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
     useEffect(() => {
         const editor = editorRef.current;
         if (!editor) return;
-
         const handleEditorClick = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
             const fieldName = target.getAttribute('data-field-name');
@@ -481,11 +469,8 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                 triggerExplanation(fieldName, fieldValue);
             }
         };
-
         editor.addEventListener('click', handleEditorClick);
-        return () => {
-            editor.removeEventListener('click', handleEditorClick);
-        };
+        return () => { editor.removeEventListener('click', handleEditorClick); };
     }, [triggerExplanation, activeFormat]);
 
     const formattedDataForCopy = useMemo(() => {
@@ -493,16 +478,9 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
         switch (activeFormat) {
             case 'json': 
             case 'key_value':
-            case 'grid':
-                return JSON.stringify({ 
-                    _meta: meta, 
-                    _approval: approvalStamp, 
-                    data: editedData.structuredData 
-                }, null, 2);
-            case 'text': 
-                return formatAsOfficialDocument(editedData);
-            default: 
-                return JSON.stringify({ _meta: meta, data: editedData.structuredData }, null, 2);
+            case 'grid': return JSON.stringify({ _meta: meta, _approval: approvalStamp, data: editedData.structuredData }, null, 2);
+            case 'text': return formatAsOfficialDocument(editedData);
+            default: return JSON.stringify({ _meta: meta, data: editedData.structuredData }, null, 2);
         }
     }, [activeFormat, editedData, approvalStamp]);
 
@@ -513,16 +491,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
             case 'json': return <div className="p-6 h-full overflow-auto"><pre className="text-sm font-mono text-gray-800 dark:text-gray-300">{JSON.stringify(dataToRender.structuredData, null, 2)}</pre></div>;
             case 'text': return (
                 <div className="flex flex-col h-full bg-white dark:bg-zinc-900 relative">
-                    <div 
-                        ref={editorRef} 
-                        contentEditable 
-                        onInput={(e) => {
-                            setTextContent(e.currentTarget.innerHTML);
-                            setIsTextDirty(true);
-                        }} 
-                        className="flex-grow p-10 outline-none overflow-y-auto ios-scroll max-w-none min-h-[400px] text-gray-800 dark:text-gray-200 selection:bg-yellow-200/50 dark:selection:bg-yellow-900/30" 
-                        style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: '0.9rem' }}
-                    />
+                    <div ref={editorRef} contentEditable onInput={(e) => { setTextContent(e.currentTarget.innerHTML); setIsTextDirty(true); }} className="flex-grow p-10 outline-none overflow-y-auto ios-scroll max-w-none min-h-[400px] text-gray-800 dark:text-gray-200 selection:bg-yellow-200/50 dark:selection:bg-yellow-900/30" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: '0.9rem' }} />
                 </div>
             );
             case 'key_value':
@@ -564,6 +533,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                              const isLogicIssue = !!logicIssue;
                              const issueColorClass = logicIssue?.severity === 'error' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/30' : 'bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-900/30';
                              const isListSummary = typeof value === 'string' && (value.startsWith('[Table') || value.startsWith('[List'));
+                             const actionItem = getActionForValue(key, String(value));
 
                              return (
                                 <div key={key} className={`flex items-center justify-between p-3 rounded-2xl border transition-all group ${activeField === key ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-black/5 dark:border-white/5'} ${isLogicIssue ? issueColorClass : (isLowConfidence ? 'bg-amber-50 dark:bg-amber-500/10' : 'bg-gray-50/50 dark:bg-zinc-800/50')}`}>
@@ -574,7 +544,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                                         {settings.showConfidence && <ConfidenceBadge score={score} />}
                                     </div>
                                     <div className="text-sm font-medium ml-4 flex-1 flex items-center gap-2">
-                                        <div className="flex-1">
+                                        <div className="flex-1 flex items-center gap-2">
                                             <EditableInput
                                                 value={String(value)}
                                                 onChange={(e) => handleKeyValueChange(key, e.target.value)}
@@ -586,11 +556,20 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                                                 disabled={isListSummary}
                                                 className={isLogicIssue ? (logicIssue?.severity === 'error' ? 'text-red-900 dark:text-red-100' : 'text-orange-900 dark:text-orange-100') : (isLowConfidence ? 'text-amber-900 dark:text-amber-100' : '')}
                                             />
+                                            {actionItem && !isListSummary && (
+                                                <Tooltip text={actionItem.label} position="top">
+                                                    <button onClick={actionItem.action} className="p-1.5 text-gray-400 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex-shrink-0">
+                                                        <actionItem.icon className="w-4 h-4" />
+                                                    </button>
+                                                </Tooltip>
+                                            )}
                                         </div>
                                         {isListSummary ? (
                                             <button onClick={() => setActiveFormat('grid')} className="p-1.5 text-gray-400 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"><TableCellsIcon className="w-4 h-4" /></button>
                                         ) : (
-                                            <button onClick={() => triggerExplanation(key, String(value))} className="p-1.5 text-gray-400 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100"><LightBulbIcon className="w-4 h-4" /></button>
+                                            <Tooltip text="Explain extraction logic" position="left">
+                                                <button onClick={() => triggerExplanation(key, String(value))} className="p-1.5 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all"><LightBulbIcon className="w-4 h-4" /></button>
+                                            </Tooltip>
                                         )}
                                     </div>
                                 </div>
@@ -630,14 +609,24 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                                     {filteredRows.map((row: any, i: number) => (
                                         <tr key={i} className="border-b border-black/5 dark:border-white/5 hover:bg-gray-50/50 dark:hover:bg-white/5">
                                             {keys.map(k => {
-                                                // Confidence handling needs update based on new structure, currently simplified
+                                                const valStr = String(row[k] ?? '');
+                                                const actionItem = getActionForValue(k, valStr);
                                                 return (
                                                     <td key={k} className={`p-2 text-sm relative`}>
                                                         <div className="flex items-center gap-1 group/cell">
                                                             <div className="flex-1 min-w-0">
-                                                                <EditableInput value={String(row[k] ?? '')} onChange={(e) => handleGridChange(i, k, e.target.value)} onBlur={(e) => handleInputBlur(k, e.target.value, i)} onFocus={() => { setActiveField(k); setShowSplitView(true); }} label={k} isActive={activeField === k} isEdited={editedFields.has(`${currentTable.path || 'root'}-${i}-${k}`)} />
+                                                                <EditableInput value={valStr} onChange={(e) => handleGridChange(i, k, e.target.value)} onBlur={(e) => handleInputBlur(k, e.target.value, i)} onFocus={() => { setActiveField(k); setShowSplitView(true); }} label={k} isActive={activeField === k} isEdited={editedFields.has(`${currentTable.path || 'root'}-${i}-${k}`)} />
                                                             </div>
-                                                            <button onClick={() => triggerExplanation(k, String(row[k] ?? ''))} className="p-1 text-gray-400 hover:text-[#007AFF] rounded-md opacity-0 group-hover/cell:opacity-100 focus:opacity-100 flex-shrink-0"><LightBulbIcon className="w-3.5 h-3.5" /></button>
+                                                            {actionItem && (
+                                                                <Tooltip text={actionItem.label} position="top">
+                                                                    <button onClick={actionItem.action} className="p-1 text-gray-400 hover:text-blue-500 rounded-md opacity-0 group-hover/cell:opacity-100 focus:opacity-100 flex-shrink-0 transition-opacity">
+                                                                        <actionItem.icon className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </Tooltip>
+                                                            )}
+                                                            <Tooltip text="Explain" position="top">
+                                                                <button onClick={() => triggerExplanation(k, valStr)} className="p-1 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md opacity-0 group-hover/cell:opacity-100 focus:opacity-100 flex-shrink-0 transition-all"><LightBulbIcon className="w-3.5 h-3.5" /></button>
+                                                            </Tooltip>
                                                         </div>
                                                     </td>
                                                 );
@@ -664,34 +653,21 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                 <div className="flex justify-between items-center p-4 pb-2">
                     <div>
                         <h2 className="text-xl font-extrabold tracking-tight text-[#1d1d1f] dark:text-white">Results</h2>
-                        <p className="text-xs font-bold text-[#5856D6] dark:text-[#AF52DE] uppercase tracking-widest">{data.documentType}</p>
+                        <p className="text-xs font-bold text-[#5856D6] dark:text-[#AF52DE] uppercase tracking-widest">{editedData.documentType}</p>
                     </div>
                     <div className="flex items-center gap-3">
                          {isSearchable && (
                             <>
                                 {validationResult.issues.length > 0 && activeFormat === 'key_value' && (
-                                    <button 
-                                        onClick={() => setShowOnlyIssues(!showOnlyIssues)} 
-                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showOnlyIssues ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800' : 'bg-black/5 dark:bg-white/5 text-gray-500 dark:text-gray-400 hover:bg-black/10 border-transparent'}`}
-                                    >
+                                    <button onClick={() => setShowOnlyIssues(!showOnlyIssues)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showOnlyIssues ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800' : 'bg-black/5 dark:bg-white/5 text-gray-500 dark:text-gray-400 hover:bg-black/10 border-transparent'}`}>
                                         <ShieldCheckIcon className={`w-3.5 h-3.5 ${showOnlyIssues ? 'text-red-500' : ''}`} />
                                         <span>{showOnlyIssues ? 'Showing Issues' : `${validationResult.issues.length} Issues`}</span>
                                     </button>
                                 )}
                                 <div className="relative group/search">
                                     <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within/search:text-blue-500 transition-colors" />
-                                    <input 
-                                        type="text" 
-                                        placeholder="Search fields..." 
-                                        value={searchQuery} 
-                                        onChange={(e) => setSearchQuery(e.target.value)} 
-                                        className="pl-9 pr-8 py-1.5 text-sm bg-gray-100 dark:bg-zinc-800 border-transparent focus:bg-white dark:focus:bg-black border focus:border-blue-500 rounded-lg outline-none transition-all w-48 focus:w-64 text-gray-800 dark:text-gray-200 placeholder-gray-500" 
-                                    />
-                                    {searchQuery && (
-                                        <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/10">
-                                            <XMarkIcon className="w-3.5 h-3.5" />
-                                        </button>
-                                    )}
+                                    <input type="text" placeholder="Search fields..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 pr-8 py-1.5 text-sm bg-gray-100 dark:bg-zinc-800 border-transparent focus:bg-white dark:focus:bg-black border focus:border-blue-500 rounded-lg outline-none transition-all w-48 focus:w-64 text-gray-800 dark:text-gray-200 placeholder-gray-500" />
+                                    {searchQuery && (<button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/10"><XMarkIcon className="w-3.5 h-3.5" /></button>)}
                                 </div>
                             </>
                         )}
@@ -705,16 +681,11 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                         )}
                     </div>
                 </div>
-                
                 {/* Segmented Control Tabs */}
                 <div className="px-4 pb-4">
                     <div className="flex p-1 bg-gray-100/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-xl border border-black/5 dark:border-white/5">
                         {outputFormats.map(f => (
-                             <button 
-                                key={f.id} 
-                                onClick={() => setActiveFormat(f.id)} 
-                                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${activeFormat === f.id ? 'bg-white dark:bg-zinc-700 text-[#007AFF] dark:text-[#0A84FF] shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}
-                            >
+                             <button key={f.id} onClick={() => setActiveFormat(f.id)} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${activeFormat === f.id ? 'bg-white dark:bg-zinc-700 text-[#007AFF] dark:text-[#0A84FF] shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}>
                                 {f.label}
                             </button>
                         ))}
@@ -727,7 +698,6 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                     <div ref={resultsContentRef} className="flex-grow overflow-y-auto ios-scroll p-6 space-y-8 bg-transparent">
                         {settings.showSummary && <div className="animate-summary"><AISummary summary={summary} loading={isSummaryLoading} onRegenerate={handleRegenerateSummary} onExplain={handleExplainSummary} /></div>}
                         
-                        {/* Tab Content with Fade Transition */}
                         <div className="border border-black/5 dark:border-white/5 rounded-2xl overflow-hidden min-h-[400px] bg-white/40 dark:bg-zinc-800/40 backdrop-blur-sm">
                            <div key={activeFormat} className="h-full w-full animate-fade-in">
                                 {renderData(activeFormat, editedData)}
@@ -749,7 +719,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ data, file, on
                             <span className="text-[10px] text-gray-400">Click a field on left to zoom</span>
                         </div>
                         <div className="flex-grow relative overflow-hidden">
-                            <DocumentHighlighter file={file} highlights={data.highlights || []} hoveredField={null} activeField={activeField} onHoverField={() => {}} showHighlights={true} />
+                            <DocumentHighlighter file={file} highlights={initialData.highlights || []} hoveredField={null} activeField={activeField} onHoverField={() => {}} showHighlights={true} />
                         </div>
                     </div>
                 )}

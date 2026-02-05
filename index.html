@@ -112,6 +112,24 @@
        background: radial-gradient(circle, rgba(139, 92, 246, 0.1) 0%, transparent 60%);
     }
 
+    /* Ambient Float Animations for Home */
+    @keyframes ambient-float-1 {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(15px, -15px) scale(1.05); }
+    }
+    @keyframes ambient-float-2 {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(-10px, 15px) scale(1.05); }
+    }
+    @keyframes ambient-float-3 {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(10px, 10px) scale(0.95); }
+    }
+
+    .animate-float-1 { animation: ambient-float-1 20s ease-in-out infinite; }
+    .animate-float-2 { animation: ambient-float-2 25s ease-in-out infinite reverse; }
+    .animate-float-3 { animation: ambient-float-3 22s ease-in-out infinite 2s; }
+
     h1, h2, h3, h4, .font-display {
       font-family: var(--font-display);
       letter-spacing: -0.025em;

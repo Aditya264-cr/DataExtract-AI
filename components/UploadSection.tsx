@@ -53,9 +53,10 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
         setIsSavePresetOpen(false);
     };
 
+    // Update: Made card opaque white/zinc for better contrast against ambient background
     const activeClasses = isDragging 
         ? 'border-[#007AFF] bg-white dark:bg-zinc-800 shadow-[0_0_50px_rgba(0,122,255,0.25)] scale-[1.01]' 
-        : 'border-white dark:border-white/10 bg-white/70 dark:bg-white/5 hover:border-[#007AFF]/30 hover:bg-white dark:hover:bg-white/10 hover:shadow-2xl';
+        : 'border-white dark:border-white/10 bg-white dark:bg-zinc-800/80 hover:border-[#007AFF]/30 hover:shadow-2xl';
 
     return (
         <div className="w-full max-w-3xl mx-auto flex flex-col items-center animate-slide-in relative z-10">

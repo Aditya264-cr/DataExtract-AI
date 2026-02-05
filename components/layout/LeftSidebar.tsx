@@ -114,15 +114,15 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({ files, onRemoveFile, o
 
     return (
         <aside 
-            className={`relative h-full bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm flex flex-col transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] z-20 overflow-hidden ${isOpen ? 'w-80' : 'w-[4.5rem] cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800/50'}`}
-            onClick={(e) => { if(!isOpen) { onToggle(); e.stopPropagation(); } }}
+            className={`relative h-full bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm flex flex-col transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] z-20 overflow-hidden ${isOpen ? 'w-80' : 'w-14 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800/50'}`}
+            onClick={(e) => { if(!isOpen) { onToggle(); } }}
         >
             <input type="file" ref={fileInputRef} onChange={(e) => e.target.files && onAddFiles(Array.from(e.target.files))} multiple className="hidden" accept=".pdf,.png,.jpg,.jpeg,.webp" />
             
             {/* Header with Absolute Positioning for Smooth Toggle */}
             <div 
                 className="h-[68px] flex items-center relative border-b border-black/5 dark:border-white/5 flex-shrink-0"
-                onClick={(e) => e.stopPropagation()} 
+                onClick={(e) => { if(isOpen) e.stopPropagation(); }} 
             >
                 <div className={`absolute left-5 transition-all duration-300 ${isOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 pointer-events-none'}`}>
                     <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest font-display">Sources</h3>
@@ -134,7 +134,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({ files, onRemoveFile, o
                             onClick={(e) => { e.stopPropagation(); onToggle(); }}
                             className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-black/10 dark:hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition-all"
                         >
-                            {isOpen ? <PanelLeftCloseIcon className="w-5 h-5" /> : <PanelLeftOpenIcon className="w-6 h-6" />}
+                            {isOpen ? <PanelLeftCloseIcon className="w-5 h-5" /> : <PanelLeftOpenIcon className="w-5 h-5" />}
                         </button>
                     </Tooltip>
                 </div>

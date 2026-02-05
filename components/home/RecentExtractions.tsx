@@ -71,4 +71,15 @@ export const RecentExtractions: React.FC<RecentExtractionsProps> = ({ history, o
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[11px] font-bold text-[#007AFF] dark:text-blue-300 uppercase tracking-wider">{item.docType}</span>
                       <span className="w-0.5 h-0.5 rounded-full bg-gray-400"></span>
-                      <span className="text-[11px] text-[#86868b] dark:text-gray-400 font-medium">{getRelativeTime(item.timestamp)}
+                      <span className="text-[11px] text-[#86868b] dark:text-gray-400 font-medium">{getRelativeTime(item.timestamp)}</span>
+                    </div>
+                  </div>
+                </div>
+                <ChevronRightIcon className="w-4 h-4 text-gray-400 group-hover:text-[#007AFF] transition-colors" />
+              </button>
+            ))
+        )}
+      </div>
+    </section>
+  );
+};

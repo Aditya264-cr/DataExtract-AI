@@ -23,6 +23,14 @@ interface WorkspaceLayoutProps {
 export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
     const [selectedFileId, setSelectedFileId] = useState<string | null>(props.files.length > 0 ? props.files[0].id : null);
     
+    // Lifted State: Edited Data is now shared between Center (Editor) and Right (Tools)
+    const [editedData, setEditedData] = useState<ExtractedData>(props.data);
+
+    // Reset edited data when the source extraction results change (e.g. reprocess)
+    useEffect(() => {
+        setEditedData(props.data);
+    }, [props.data]);
+
     // Preview Modal state
     const [previewFileId, setPreviewFileId] = useState<string | null>(null);
     const [heatmapVisible, setHeatmapVisible] = useState(false);
@@ -37,7 +45,6 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
     }, [props.files, selectedFileId]);
 
     useEffect(() => {
-        // When the sidebar collapses, also close any related overlays like the preview modal and reset heatmap.
         if (!props.isLeftSidebarOpen) {
             setPreviewFileId(null);
             setHeatmapVisible(false);
@@ -54,12 +61,12 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
 
     const handleClosePreview = () => {
         setPreviewFileId(null);
-        setHeatmapVisible(false); // Reset to ensure next open defaults to false unless specified
+        setHeatmapVisible(false); 
     };
 
     return (
         <div className="relative w-full h-full flex gap-4 p-4 z-10">
-            {/* Left Pane: Sources - Independent Surface */}
+            {/* Left Pane: Sources */}
             <LeftSidebar
                 files={props.files}
                 onAddFiles={props.onAddFiles}
@@ -71,19 +78,22 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
                 onPreviewSource={handlePreviewSource}
             />
 
-            {/* Center Pane: Main Content - Independent Surface */}
+            {/* Center Pane: Main Content */}
             <main className="flex-1 min-w-0 h-full flex flex-col bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden transition-all duration-300">
                 <CenterWorkspace
-                    data={props.data}
+                    initialData={props.data} // Pass initial for reference if needed
+                    editedData={editedData}  // Pass lifted state
+                    onDataChange={setEditedData} // Pass setter
                     file={selectedFile || props.files[0]}
                     onNewUpload={props.onNewUpload}
                     onReprocess={props.onReprocess}
                 />
             </main>
 
-            {/* Right Pane: Assistant - Independent Surface */}
+            {/* Right Pane: Options Panel / Studio */}
             <RightSidebar
-                extractedData={props.data}
+                originalData={props.data}
+                editedData={editedData} // Pass live data to tools
                 isOpen={props.isRightSidebarOpen}
                 onToggle={props.onToggleRightSidebar}
             />
@@ -108,7 +118,6 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
                         ) : (
                             <iframe src={previewFile.preview} className="w-full h-full border-0" title="PDF Preview"></iframe>
                         )}
-                        {/* Toggle Heatmap Button inside Modal */}
                         {previewFile.file.type.startsWith('image/') && (
                              <div className="absolute top-4 right-4 z-30 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button 

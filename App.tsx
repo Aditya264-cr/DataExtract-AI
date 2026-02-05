@@ -34,6 +34,42 @@ const rotatingTips = [
 // Increased threshold to ensure human verification for ambiguous docs
 const CLASSIFICATION_CONFIDENCE_THRESHOLD = 80;
 
+const PerspectiveGrid = () => {
+    return (
+        <div className="absolute bottom-0 left-0 right-0 h-[45vh] z-0 pointer-events-none select-none overflow-hidden opacity-60 dark:opacity-40">
+            {/* Soft Mask to blend into background */}
+            <div className="absolute inset-0 z-10 bg-gradient-to-t from-transparent via-transparent to-[var(--glass-surface)]" style={{ maskImage: 'linear-gradient(to bottom, black 0%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, black 0%, transparent 100%)' }}></div>
+            
+            {/* The Grid Plane */}
+            <div className="absolute inset-0 flex items-end justify-center" style={{ perspective: '800px' }}>
+                <div 
+                    className="w-[300%] h-[150%] origin-bottom animate-grid-flow"
+                    style={{
+                        transform: 'rotateX(60deg)',
+                        backgroundImage: `
+                            linear-gradient(to right, rgba(59, 130, 246, 0.2) 1px, transparent 1px),
+                            linear-gradient(to bottom, rgba(59, 130, 246, 0.2) 1px, transparent 1px)
+                        `,
+                        backgroundSize: '60px 60px',
+                        maskImage: 'linear-gradient(to top, black 10%, transparent 80%)',
+                        WebkitMaskImage: 'linear-gradient(to top, black 10%, transparent 80%)'
+                    }}
+                />
+            </div>
+            
+            <style>{`
+                @keyframes grid-flow {
+                    0% { background-position: 0 0; }
+                    100% { background-position: 0 60px; }
+                }
+                .animate-grid-flow {
+                    animation: grid-flow 3s linear infinite;
+                }
+            `}</style>
+        </div>
+    );
+};
+
 function App() {
   const { settings, history, addToHistory, clearHistory } = useContext(SettingsContext);
   const [processingState, setProcessingState] = useState<ProcessingState>('idle');
@@ -326,12 +362,19 @@ function App() {
     switch (processingState) {
       case 'idle':
         return (
-          <div className="flex flex-col lg:flex-row items-start justify-center gap-8 w-full max-w-[1400px] mx-auto pt-8">
+          <div className="flex flex-col lg:flex-row items-start justify-center gap-8 w-full max-w-[1400px] mx-auto pt-8 relative">
             <GuidanceRail tip={rotatingTips[tipIndex]} lastUsedPreset={lastUsedPreset} />
             
-            <div className="flex-1 flex flex-col items-center px-4 w-full relative z-0">
-               {/* Ambient Glow for Home Screen */}
-              <div className="absolute top-[-40px] left-1/2 -translate-x-1/2 w-[80%] h-[600px] bg-gradient-to-b from-blue-50/70 via-indigo-50/40 to-transparent dark:from-blue-900/10 dark:via-indigo-900/10 dark:to-transparent blur-[80px] -z-10 rounded-full pointer-events-none mix-blend-multiply dark:mix-blend-screen opacity-80" />
+            <div className="flex-1 flex flex-col items-center px-4 w-full relative z-10">
+               {/* Ambient Glow Background for Greeting & Upload Area */}
+               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[140%] max-w-[1200px] h-[700px] -z-10 pointer-events-none select-none">
+                    {/* Pale Blue Blob */}
+                    <div className="absolute top-[-10%] left-[15%] w-[55%] h-[55%] bg-[#E0F2FE] dark:bg-blue-900/10 rounded-full blur-[100px] animate-float-1 opacity-50 mix-blend-multiply dark:mix-blend-screen" />
+                    {/* Muted Lavender Blob */}
+                    <div className="absolute top-[10%] right-[10%] w-[50%] h-[50%] bg-[#F3E8FF] dark:bg-purple-900/10 rounded-full blur-[100px] animate-float-2 opacity-50 mix-blend-multiply dark:mix-blend-screen" />
+                    {/* Soft Cyan Blob */}
+                    <div className="absolute top-[25%] left-[30%] w-[45%] h-[40%] bg-[#ECFEFF] dark:bg-cyan-900/10 rounded-full blur-[100px] animate-float-3 opacity-50 mix-blend-multiply dark:mix-blend-screen" />
+               </div>
 
               <Greeting />
               <UploadSection 
@@ -418,9 +461,12 @@ function App() {
             <Header 
                 onHomeClick={handleNewUpload} 
             />
-            <main className="flex-1 overflow-y-auto ios-scroll w-full relative">
+            <main className="flex-1 overflow-y-auto ios-scroll w-full relative z-20">
                 {renderContent}
             </main>
+
+            {/* Perspective Data Floor - Only on Home (idle) */}
+            {processingState === 'idle' && <PerspectiveGrid />}
         </div>
 
         {/* Global Drag & Drop Overlay in Portal */}
