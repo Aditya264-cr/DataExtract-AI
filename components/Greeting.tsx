@@ -94,7 +94,7 @@ export const Greeting: React.FC = () => {
             {/* Capability Badge */}
             <div className={`relative mb-8 group z-10 transition-all duration-700 ease-out motion-reduce:transition-none ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
                 <div 
-                    className="relative px-5 py-1.5 rounded-full border border-[#111827]/5 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-md shadow-sm text-[10px] sm:text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-[0.25em] select-none"
+                    className="relative px-5 py-1.5 rounded-full border border-[#111827]/5 dark:border-white/10 bg-white dark:bg-white/5 backdrop-blur-md shadow-md text-[10px] sm:text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-[0.25em] select-none"
                 >
                     Explain • Extract • Visualise
                 </div>

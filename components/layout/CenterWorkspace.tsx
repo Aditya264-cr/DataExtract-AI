@@ -31,6 +31,8 @@ import { AlignLeftIcon } from '../icons/AlignLeftIcon';
 import { AlignCenterIcon } from '../icons/AlignCenterIcon';
 import { AlignRightIcon } from '../icons/AlignRightIcon';
 import { ClearFormattingIcon } from '../icons/ClearFormattingIcon';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface CenterWorkspaceProps {
     initialData: ExtractedData;
@@ -105,6 +107,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
     const [showSplitView, setShowSplitView] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [showOnlyIssues, setShowOnlyIssues] = useState(false);
+    const [isExportingPDF, setIsExportingPDF] = useState(false);
     
     // Rich Text State
     const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('left');
@@ -225,16 +228,17 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         // 1. Email
         if (lowerKey.includes('email') || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
              if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-                return { icon: EnvelopeIcon, label: "Send Email", action: () => window.open(`mailto:${value}`) };
+                return { type: 'email', icon: EnvelopeIcon, label: "Send Email", action: () => window.open(`mailto:${value}`) };
              }
         }
         // 2. Phone
         if ((lowerKey.includes('phone') || lowerKey.includes('mobile') || lowerKey.includes('fax') || lowerKey.includes('contact') || lowerKey.includes('tel') || lowerKey.includes('cell')) && value.length > 5 && /[0-9]/.test(value)) {
-            return { icon: PhoneIcon, label: "Call", action: () => window.open(`tel:${value.replace(/[^\d+]/g, '')}`) };
+            return { type: 'phone', icon: PhoneIcon, label: "Call", action: () => window.open(`tel:${value.replace(/[^\d+]/g, '')}`) };
         }
         // 3. Date -> Google Calendar
         if ((lowerKey.includes('date') || lowerKey.includes('due') || lowerKey.includes('expires') || lowerKey.includes('schedule') || lowerKey.includes('dob') || lowerKey.includes('birth') || lowerKey.includes('deadline')) && !isNaN(Date.parse(value)) && /\d/.test(value)) {
             return {
+                type: 'calendar',
                 icon: CalendarIcon, label: "Add to Calendar",
                 action: () => {
                     const date = new Date(value);
@@ -250,7 +254,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         // 4. Address -> Google Maps
         if ((lowerKey.includes('address') || lowerKey.includes('location') || lowerKey.includes('city') || lowerKey.includes('street') || lowerKey.includes('venue') || lowerKey.includes('residence') || lowerKey.includes('office') || lowerKey.includes('hq') || lowerKey.includes('destination')) && value.length > 5) {
             if (!value.includes('http') && !/^[0-9]+$/.test(value)) {
-                return { icon: MapPinIcon, label: "Open Maps", action: () => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value.replace(/\n/g, ', '))}`, '_blank') };
+                return { type: 'map', icon: MapPinIcon, label: "Open Maps", action: () => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value.replace(/\n/g, ', '))}`, '_blank') };
             }
         }
         return null;
@@ -265,15 +269,31 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         
         // --- TEXT VIEW INTERACTIVITY ---
         // We inject interactivity into standard field lines "   • Label: Value"
-        // This allows the "Text View" to also have "Explain This" functionality via spans with data attributes.
+        // This allows the "Text View" to also have "Explain This" functionality and Smart Actions
         // Regex matches lines starting with "   • "
         html = html.replace(/^([ \t]*•\s+)([^:]+)(:\s+)(.+)$/gm, (match, prefix, label, separator, value) => {
             const fieldName = label.trim();
-            // We wrap the whole line content in a span that triggers the click handler
-            // And add a visual "Explain" icon at the end that appears on hover
+            const valClean = value.trim();
+            const actionItem = getActionForValue(fieldName, valClean);
+            
+            // Generate HTML for Action Icon (if applicable)
+            let actionHtml = '';
+            if (actionItem) {
+                // Inline SVG definitions for text view helpers
+                let svgPath = '';
+                if (actionItem.type === 'email') svgPath = 'M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75';
+                else if (actionItem.type === 'phone') svgPath = 'M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z';
+                else if (actionItem.type === 'calendar') svgPath = 'M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z';
+                else if (actionItem.type === 'map') svgPath = 'M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z';
+
+                actionHtml = `<span class="inline-flex items-center justify-center cursor-pointer text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md p-0.5 ml-2 transition-colors relative z-10" title="${actionItem.label}" data-action-type="${actionItem.type}" data-action-value="${valClean}" data-action-key="${fieldName}"><svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="${svgPath}" /></svg></span>`;
+            }
+
+            // We wrap the whole line content in a span that triggers the explain click handler
+            // Explain icon appears on hover
             const explainIcon = `<span class="inline-flex items-center justify-center opacity-0 group-hover/line:opacity-100 transition-opacity absolute right-0 top-1/2 -translate-y-1/2 translate-x-full pl-2 pointer-events-none"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-amber-500 bg-amber-50 rounded-full p-0.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m-6.375-3.375a3 3 0 0 1 3-3h1.5a3 3 0 0 1 3 3v.375M17.25 12A5.25 5.25 0 0 1 12 17.25 5.25 5.25 0 0 1 6.75 12A5.25 5.25 0 0 1 12 6.75a5.25 5.25 0 0 1 5.25 5.25Z" /></svg></span>`;
             
-            return `${prefix}<span class="group/line relative cursor-help border-b border-dotted border-transparent hover:border-gray-300 dark:hover:border-gray-600 transition-colors" data-field-name="${fieldName}">${label}${separator}${value}${explainIcon}</span>`;
+            return `${prefix}<span class="group/line relative cursor-help border-b border-dotted border-transparent hover:border-gray-300 dark:hover:border-gray-600 transition-colors" data-field-name="${fieldName}">${label}${separator}${value}${actionHtml}${explainIcon}</span>`;
         });
 
         // Wrap the whole thing in a styled container
@@ -342,6 +362,121 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         document.body.removeChild(link);
     };
 
+    const handleExportPDF = async () => {
+        if (isExportingPDF) return;
+        setIsExportingPDF(true);
+        try {
+            const fileName = `export_${editedData.documentType.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${Date.now()}.pdf`;
+            const doc = new jsPDF();
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            
+            // Header
+            doc.setFontSize(18);
+            doc.text(editedData.documentType, 14, 20);
+            
+            doc.setFontSize(10);
+            doc.setTextColor(100);
+            doc.text(`Confidence: ${editedData.confidenceScore}%  |  Date: ${new Date().toLocaleDateString()}`, 14, 26);
+            doc.setTextColor(0);
+
+            let currentY = 35;
+
+            // Summary if available - Use the latest summary state if available, otherwise fallback
+            const summaryText = summary?.summary || editedData.rawTextSummary;
+            if (summaryText) {
+                doc.setFontSize(12);
+                doc.setFont("helvetica", "bold");
+                doc.text("Summary", 14, currentY);
+                currentY += 6;
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(10);
+                const splitSummary = doc.splitTextToSize(summaryText, pageWidth - 28);
+                doc.text(splitSummary, 14, currentY);
+                currentY += splitSummary.length * 5 + 10;
+            }
+
+            // Key-Value Data (Flattened)
+            const flattened = flattenObject(editedData);
+            const kvEntries = Object.entries(flattened).filter(([_, v]) => !String(v).startsWith('[Table') && !String(v).startsWith('[List'));
+            
+            if (kvEntries.length > 0) {
+                doc.setFontSize(12);
+                doc.setFont("helvetica", "bold");
+                doc.text("Key Data", 14, currentY);
+                currentY += 2;
+
+                const kvData = kvEntries.map(([k, v]) => [k, String(v)]);
+                
+                autoTable(doc, {
+                    startY: currentY + 4,
+                    head: [['Field', 'Value']],
+                    body: kvData,
+                    theme: 'striped',
+                    headStyles: { fillColor: [66, 66, 66] },
+                    styles: { fontSize: 9, cellPadding: 3 },
+                    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 70 } },
+                    margin: { left: 14, right: 14 }
+                });
+                
+                // @ts-ignore
+                currentY = doc.lastAutoTable.finalY + 15;
+            }
+
+            // Tables
+            const docTables = editedData.structuredData.tables || [];
+            docTables.forEach(table => {
+                if (currentY > pageHeight - 40) {
+                    doc.addPage();
+                    currentY = 20;
+                }
+
+                doc.setFontSize(12);
+                doc.setFont("helvetica", "bold");
+                doc.text(table.tableName || "Table Data", 14, currentY);
+                
+                const headers = table.headers || (table.rows.length > 0 ? Object.keys(table.rows[0]) : []);
+                if (headers.length > 0) {
+                    const body = table.rows.map((row: any) => headers.map((h: string) => {
+                        const cell = row[h];
+                        return String(cell?.value ?? cell ?? "");
+                    }));
+
+                    autoTable(doc, {
+                        startY: currentY + 5,
+                        head: [headers],
+                        body: body,
+                        theme: 'grid',
+                        headStyles: { fillColor: [0, 122, 255] },
+                        styles: { fontSize: 8 },
+                        margin: { left: 14, right: 14 }
+                    });
+                    
+                    // @ts-ignore
+                    currentY = doc.lastAutoTable.finalY + 15;
+                }
+            });
+
+            if (settings.showWatermark) {
+                const totalPages = doc.getNumberOfPages();
+                for (let i = 1; i <= totalPages; i++) {
+                    doc.setPage(i);
+                    doc.setFontSize(9);
+                    doc.setTextColor(150);
+                    doc.text(WATERMARK_TEXT, 14, pageHeight - 10);
+                }
+            }
+
+            doc.save(fileName);
+            setNotification({ message: 'PDF exported successfully!', type: 'success' });
+        } catch (error) {
+            console.error("PDF Export failed", error);
+            setNotification({ message: 'Failed to generate PDF. Please try again.', type: 'error' });
+        } finally {
+            setIsExportingPDF(false);
+        }
+    };
+
     useEffect(() => {
         setIsTextDirty(false); 
         if (settings.showSummary) {
@@ -374,6 +509,36 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         if (!editor) return;
         const handleEditorClick = (e: MouseEvent) => {
             let target = e.target as HTMLElement;
+            
+            // 1. Check if Action Icon was clicked (in Text View)
+            const actionBtn = target.closest('[data-action-type]');
+            if (actionBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const type = actionBtn.getAttribute('data-action-type');
+                const val = actionBtn.getAttribute('data-action-value');
+                const key = actionBtn.getAttribute('data-action-key') || 'Event';
+                
+                if (type && val) {
+                    if (type === 'email') window.open(`mailto:${val}`);
+                    else if (type === 'phone') window.open(`tel:${val.replace(/[^\d+]/g, '')}`);
+                    else if (type === 'map') window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(val.replace(/\n/g, ', '))}`, '_blank');
+                    else if (type === 'calendar') {
+                         const date = new Date(val);
+                         if (!isNaN(date.getTime())) {
+                            const iso = date.toISOString().replace(/-|:|\.\d+/g, '');
+                            const dateStr = iso.slice(0, 8);
+                            const datesParam = `${dateStr}/${dateStr}`;
+                            const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(key)}&dates=${datesParam}&details=${encodeURIComponent('Value: ' + val)}`;
+                            window.open(url, '_blank');
+                         }
+                    }
+                }
+                return;
+            }
+
+            // 2. Check if Field Line was clicked (Explain)
             // Handle clicks on children (like the svg icon or span text)
             if (!target.hasAttribute('data-field-name')) {
                 const parent = target.closest('[data-field-name]');
@@ -382,9 +547,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
             
             const fieldName = target.getAttribute('data-field-name');
             if (fieldName) {
-                // For text view, value is part of the innerText (Label: Value), 
-                // but for explanation context the full line is actually quite good.
-                const fieldValue = target.innerText;
+                const fieldValue = target.innerText.replace(/[\uE000-\uF8FF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDE4F]/g, "").trim(); // basic strip
                 triggerExplanation(fieldName, fieldValue);
             }
         };
@@ -841,6 +1004,24 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                     </div>
                     
                     <div className="flex items-center gap-3">
+                        <button 
+                            onClick={handleExportPDF} 
+                            disabled={isExportingPDF}
+                            className="text-xs font-bold text-gray-600 hover:text-[#007AFF] transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                            {isExportingPDF ? (
+                                <>
+                                    <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+                                    Generating PDF...
+                                </>
+                            ) : (
+                                <>
+                                    <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                                    Export PDF
+                                </>
+                            )}
+                        </button>
+                        <div className="h-4 w-px bg-gray-300 dark:bg-zinc-700"></div>
                         <button onClick={() => setIsTemplateModalOpen(true)} className="text-xs font-bold text-gray-600 hover:text-[#007AFF] transition-colors">
                             Save as Template
                         </button>
