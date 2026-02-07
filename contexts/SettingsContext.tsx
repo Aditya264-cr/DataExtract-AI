@@ -4,12 +4,15 @@ import { Template, Preset } from '../types';
 
 type Settings = {
     // Appearance
+    theme: 'light' | 'dark' | 'system';
     glassIntensity: 'low' | 'medium' | 'high';
+    season: 'auto' | 'spring' | 'summer' | 'autumn' | 'winter';
     
     // Output
     defaultView: 'json' | 'text' | 'key_value' | 'grid';
     showSummary: boolean;
     showConfidence: boolean;
+    showWatermark: boolean;
 
     // Extraction
     autoDetectDocType: boolean;
@@ -65,10 +68,13 @@ const defaultPresets: Preset[] = [
 ];
 
 const defaultSettings: Settings = {
+    theme: 'system',
     glassIntensity: 'medium',
+    season: 'auto',
     defaultView: 'key_value',
     showSummary: true,
     showConfidence: true,
+    showWatermark: true,
     autoDetectDocType: true,
     highlightLowConfidence: true,
     enableValidation: true,
@@ -111,8 +117,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     merged.presets = defaultPresets;
                 }
                 if (!merged.systemMode) merged.systemMode = 'PROFESSIONAL';
-                delete merged.darkMode;
-                delete merged.isPanelOpen; // Cleanup legacy
+                if (!merged.season) merged.season = 'auto';
+                if (merged.showWatermark === undefined) merged.showWatermark = true;
+                
+                // Backwards compatibility for old 'darkMode' boolean if it exists
+                if (initial.darkMode !== undefined && !initial.theme) {
+                    merged.theme = initial.darkMode ? 'dark' : 'light';
+                }
+                delete merged.darkMode; 
+                delete merged.isPanelOpen; 
                 return merged;
             }
             return defaultSettings;
@@ -145,20 +158,52 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
     }, []);
 
+    // Apply Side Effects (Theme, Glass, Contrast)
     useEffect(() => {
-        document.documentElement.classList.remove('dark');
         const root = document.documentElement;
+
+        // 1. Theme Logic
+        const applyTheme = () => {
+            const isSystemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const shouldBeDark = settings.theme === 'dark' || (settings.theme === 'system' && isSystemDark);
+            
+            if (shouldBeDark) {
+                root.classList.add('dark');
+            } else {
+                root.classList.remove('dark');
+            }
+        };
+        applyTheme();
+
+        // Listen for system changes if mode is system
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const handleSystemChange = () => {
+            if (settings.theme === 'system') applyTheme();
+        };
+        mediaQuery.addEventListener('change', handleSystemChange);
+
+        // 2. High Contrast Logic
+        if (settings.highContrast) {
+            root.classList.add('high-contrast');
+        } else {
+            root.classList.remove('high-contrast');
+        }
+
+        // 3. Glass Intensity Logic
         if (settings.glassIntensity === 'low') {
-            root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.95)');
-            root.style.setProperty('--glass-blur', '10px');
+            root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.98)');
+            root.style.setProperty('--glass-blur', '0px');
         } else if (settings.glassIntensity === 'high') {
-            root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.40)');
+            root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.30)');
             root.style.setProperty('--glass-blur', '40px');
         } else {
+            // Medium
             root.style.setProperty('--glass-surface', 'rgba(255, 255, 255, 0.55)');
-             root.style.setProperty('--glass-blur', '20px');
+            root.style.setProperty('--glass-blur', '20px');
         }
-    }, [settings.glassIntensity]);
+
+        return () => mediaQuery.removeEventListener('change', handleSystemChange);
+    }, [settings.theme, settings.highContrast, settings.glassIntensity]);
 
     const updateSetting = (key: keyof Settings, value: any) => {
         setSettings(prevSettings => {

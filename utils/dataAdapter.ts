@@ -67,11 +67,17 @@ export const extractTables = (structuredData: any): DiscoveredTable[] => {
 
     if (Array.isArray(root.tables)) {
         root.tables.forEach((table: any, index: number) => {
-            // Transform rows from { Col: { value: "x", ... } } to { Col: "x" } for grid display
+            // Transform rows to preserve cell object structure (value + confidence)
             const simplifiedRows = (table.rows || []).map((row: any) => {
                 const simpleRow: Record<string, any> = {};
                 Object.entries(row).forEach(([col, cell]: [string, any]) => {
-                    simpleRow[col] = cell?.value ?? cell; // Handle both expanded field object and direct value
+                    // If cell is a full ExtractedField object, keep it. 
+                    // If it's a primitive, wrap it to normalize.
+                    if (cell && typeof cell === 'object' && 'value' in cell) {
+                        simpleRow[col] = cell;
+                    } else {
+                        simpleRow[col] = { value: cell, confidence: undefined };
+                    }
                 });
                 return simpleRow;
             });
@@ -142,7 +148,12 @@ export const updateTableData = (rootData: any, tablePath: string, rowIndex: numb
         if (table.rows && table.rows[rowIndex]) {
             const row = table.rows[rowIndex];
             if (row[columnKey]) {
-                row[columnKey].value = newValue;
+                // Check if it's an object structure or direct value (handle legacy)
+                if (typeof row[columnKey] === 'object' && 'value' in row[columnKey]) {
+                    row[columnKey].value = newValue;
+                } else {
+                    row[columnKey] = newValue;
+                }
             } else {
                 // If column doesn't exist on this row, create it
                 row[columnKey] = { value: newValue, confidence: 100 };

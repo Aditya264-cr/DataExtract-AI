@@ -17,19 +17,17 @@ import { BatchSummaryModal } from './components/ui/BatchSummaryModal';
 import { GuidanceRail } from './components/home/GuidanceRail';
 import { AssistantPreview } from './components/home/AssistantPreview';
 import { HowItWorks } from './components/home/HowItWorks';
+import { ThePlatform } from './components/home/ThePlatform';
 import { DocTypes } from './components/home/DocTypes';
 import { ArrowUpTrayIcon } from './components/icons/ArrowUpTrayIcon';
 import { saveSession, loadSession, clearSession } from './utils/sessionManager';
 import { Notification } from './components/ui/Notification';
 import { Portal } from './components/ui/Portal';
 import { useSidebar } from './hooks/useSidebar';
-
-const rotatingTips = [
-    "High contrast mode helps identify faint text in scanned docs.",
-    "Drag multiple images to process them as a single document batch.",
-    "Use custom templates to enforce specific data structures.",
-    "Assistive chat can explain why specific values were extracted."
-];
+import { useSeason } from './hooks/useSeason';
+import { XMarkIcon } from './components/icons/XMarkIcon';
+import { SparklesIcon } from './components/icons/SparklesIcon';
+import { ListBulletIcon } from './components/icons/ListBulletIcon'; 
 
 // Increased threshold to ensure human verification for ambiguous docs
 const CLASSIFICATION_CONFIDENCE_THRESHOLD = 80;
@@ -47,8 +45,8 @@ const PerspectiveGrid = () => {
                     style={{
                         transform: 'rotateX(60deg)',
                         backgroundImage: `
-                            linear-gradient(to right, rgba(0, 0, 0, 0.08) 1px, transparent 1px),
-                            linear-gradient(to bottom, rgba(0, 0, 0, 0.08) 1px, transparent 1px)
+                            linear-gradient(to right, #000000 1px, transparent 1px),
+                            linear-gradient(to bottom, #000000 1px, transparent 1px)
                         `,
                         backgroundSize: '60px 60px',
                         maskImage: 'linear-gradient(to top, black 10%, transparent 80%)',
@@ -80,7 +78,6 @@ function App() {
   const [description, setDescription] = useState<string>('');
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [stats, setStats] = useState({ docsCount: 0, fieldsCount: 0 });
-  const [tipIndex, setTipIndex] = useState(0);
   const [classificationResult, setClassificationResult] = useState<{ docType: string; confidence: number; } | null>(null);
 
   // Global Drag & Drop State
@@ -95,15 +92,15 @@ function App() {
   const [restoreNotification, setRestoreNotification] = useState<boolean>(false);
   const [pendingSession, setPendingSession] = useState<any>(null);
 
-  // Sidebar State
+  // Sidebar State (Results View)
   const { isLeftOpen, toggleLeftSidebar, isRightOpen, toggleRightSidebar } = useSidebar();
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTipIndex((prev) => (prev + 1) % rotatingTips.length);
-    }, 8000);
-    return () => clearInterval(interval);
-  }, []);
+  
+  // Home View Responsive Drawer State
+  const [showMobileWorkflow, setShowMobileWorkflow] = useState(false);
+  const [showMobileFeatures, setShowMobileFeatures] = useState(false);
+  
+  // Seasonal Hook
+  const { blobStyles } = useSeason();
 
   // --- Auto-Save & Restoration Logic ---
   useEffect(() => {
@@ -362,86 +359,207 @@ function App() {
     switch (processingState) {
       case 'idle':
         return (
-          <div className="flex flex-col lg:flex-row items-start justify-center gap-8 w-full max-w-[1400px] mx-auto pt-8 relative">
-            <GuidanceRail tip={rotatingTips[tipIndex]} lastUsedPreset={lastUsedPreset} />
-            
-            <div className="flex-1 flex flex-col items-center px-4 w-full relative z-10">
-               {/* Ambient Glow Background for Greeting & Upload Area */}
-               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[140%] max-w-[1200px] h-[700px] -z-10 pointer-events-none select-none">
-                    {/* Pale Blue Blob */}
-                    <div className="absolute top-[-10%] left-[15%] w-[55%] h-[55%] bg-[#E0F2FE] dark:bg-blue-900/10 rounded-full blur-[100px] animate-float-1 opacity-50 mix-blend-multiply dark:mix-blend-screen" />
-                    {/* Muted Lavender Blob */}
-                    <div className="absolute top-[10%] right-[10%] w-[50%] h-[50%] bg-[#F3E8FF] dark:bg-purple-900/10 rounded-full blur-[100px] animate-float-2 opacity-50 mix-blend-multiply dark:mix-blend-screen" />
-                    {/* Soft Cyan Blob */}
-                    <div className="absolute top-[25%] left-[30%] w-[45%] h-[40%] bg-[#ECFEFF] dark:bg-cyan-900/10 rounded-full blur-[100px] animate-float-3 opacity-50 mix-blend-multiply dark:mix-blend-screen" />
-               </div>
-
-              <Greeting />
-              <UploadSection 
-                onFileChange={handleFileChange} 
-                selectedTemplate={selectedTemplate} 
-                onTemplateSelect={setSelectedTemplate} 
-                description={description} 
-                setDescription={setDescription} 
-                activePresetId={activePresetId} 
-                onPresetSelect={handlePresetSelect} 
-              />
-              <HowItWorks />
-              <DocTypes presets={settings.presets} />
-              <StatsBar docsProcessed={stats.docsCount} fieldsExtracted={stats.fieldsCount} />
-              <RecentExtractions 
-                history={history} 
-                onSelectItem={handleSelectHistoryItem} 
-                onClearHistory={clearHistory}
-              />
+          <div className="relative w-full max-w-[1600px] mx-auto pt-4 lg:pt-8">
+            {/* Mobile/Tablet Drawer Toggles - Visible only on smaller screens */}
+            <div className="xl:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 animate-slide-in pointer-events-none">
+                <button 
+                    onClick={() => setShowMobileWorkflow(true)} 
+                    className="pointer-events-auto bg-white/90 dark:bg-zinc-800/90 backdrop-blur-md text-[#1d1d1f] dark:text-white border border-gray-200 dark:border-zinc-700 shadow-lg hover:shadow-xl px-5 py-2.5 rounded-full flex items-center gap-2 text-sm font-bold transition-all active:scale-95"
+                >
+                    <ListBulletIcon className="w-4 h-4" /> Workflow
+                </button>
+                <button 
+                    onClick={() => setShowMobileFeatures(true)} 
+                    className="pointer-events-auto bg-white/90 dark:bg-zinc-800/90 backdrop-blur-md text-[#1d1d1f] dark:text-white border border-gray-200 dark:border-zinc-700 shadow-lg hover:shadow-xl px-5 py-2.5 rounded-full flex items-center gap-2 text-sm font-bold transition-all active:scale-95"
+                >
+                    <SparklesIcon className="w-4 h-4" /> Features
+                </button>
             </div>
 
-            <AssistantPreview />
+            <div className="flex flex-col xl:flex-row items-start justify-center gap-8 w-full relative">
+                {/* Left Panel - Responsive Wrapper */}
+                <div 
+                    className={`
+                        fixed inset-y-0 left-0 z-50 w-80 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-r border-gray-200 dark:border-zinc-800 shadow-2xl transform transition-transform duration-300 ease-out
+                        ${showMobileWorkflow ? 'translate-x-0' : '-translate-x-full'}
+                        xl:translate-x-0 xl:relative xl:block xl:w-64 xl:bg-transparent xl:dark:bg-transparent xl:border-none xl:shadow-none xl:z-auto xl:sticky xl:top-24
+                    `}
+                >
+                    <div className="h-full overflow-y-auto p-6 xl:p-0 xl:pt-2 ios-scroll flex flex-col">
+                        <div className="xl:hidden flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-[#1d1d1f] dark:text-white">Workflow</h3>
+                            <button onClick={() => setShowMobileWorkflow(false)} className="p-2 bg-gray-100 dark:bg-zinc-800 rounded-full hover:bg-gray-200 dark:hover:bg-zinc-700">
+                                <XMarkIcon className="w-5 h-5 text-gray-500" />
+                            </button>
+                        </div>
+                        <GuidanceRail 
+                            fileCount={files.length} 
+                            hasPreset={!!activePresetId} 
+                            hasDescription={description.length > 0} 
+                            processingState={processingState} 
+                            lastUsedPreset={lastUsedPreset}
+                        />
+                    </div>
+                </div>
+
+                {/* Mobile Backdrop for Left Panel */}
+                {showMobileWorkflow && (
+                    <div className="xl:hidden fixed inset-0 bg-black/20 z-40 backdrop-blur-sm transition-opacity" onClick={() => setShowMobileWorkflow(false)} />
+                )}
+                
+                {/* Main Content Area */}
+                <div className="flex-1 flex flex-col items-center px-4 w-full relative z-10 min-w-0">
+                    {/* Ambient Glow Background for Greeting & Upload Area - Redesigned Static Gradient */}
+                    <div className="absolute top-[-100px] left-1/2 -translate-x-1/2 w-[120%] max-w-[1000px] h-[800px] -z-10 pointer-events-none select-none overflow-visible">
+                            {/* Light Blue - Top Left Center */}
+                            <div className="absolute top-[10%] left-[20%] w-[50%] h-[50%] rounded-full bg-[#7dd3fc]/25 dark:bg-[#0ea5e9]/15 blur-[120px]" />
+                            
+                            {/* Lavender - Top Right Center */}
+                            <div className="absolute top-[15%] right-[20%] w-[45%] h-[45%] rounded-full bg-[#c4b5fd]/25 dark:bg-[#8b5cf6]/15 blur-[120px]" />
+                            
+                            {/* Cyan - Center/Bottom */}
+                            <div className="absolute top-[35%] left-[30%] w-[40%] h-[40%] rounded-full bg-[#67e8f9]/20 dark:bg-[#06b6d4]/10 blur-[100px]" />
+                    </div>
+
+                    <Greeting />
+                    <UploadSection 
+                        onFileChange={handleFileChange} 
+                        selectedTemplate={selectedTemplate} 
+                        onTemplateSelect={setSelectedTemplate} 
+                        description={description} 
+                        setDescription={setDescription} 
+                        activePresetId={activePresetId} 
+                        onPresetSelect={handlePresetSelect} 
+                    />
+                    <HowItWorks />
+                    <ThePlatform />
+                    <DocTypes presets={settings.presets} />
+                    <StatsBar docsProcessed={stats.docsCount} fieldsExtracted={stats.fieldsCount} />
+                    <RecentExtractions 
+                        history={history} 
+                        onSelectItem={handleSelectHistoryItem} 
+                        onClearHistory={clearHistory}
+                    />
+                </div>
+
+                {/* Right Panel - Responsive Wrapper */}
+                <div 
+                    className={`
+                        fixed inset-y-0 right-0 z-50 w-80 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-l border-gray-200 dark:border-zinc-800 shadow-2xl transform transition-transform duration-300 ease-out
+                        ${showMobileFeatures ? 'translate-x-0' : 'translate-x-full'}
+                        xl:translate-x-0 xl:relative xl:block xl:w-72 xl:bg-transparent xl:dark:bg-transparent xl:border-none xl:shadow-none xl:z-auto xl:sticky xl:top-24
+                    `}
+                >
+                    <div className="h-full overflow-y-auto p-6 xl:p-0 xl:pt-2 ios-scroll flex flex-col">
+                        <div className="xl:hidden flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-[#1d1d1f] dark:text-white">Capabilities</h3>
+                            <button onClick={() => setShowMobileFeatures(false)} className="p-2 bg-gray-100 dark:bg-zinc-800 rounded-full hover:bg-gray-200 dark:hover:bg-zinc-700">
+                                <XMarkIcon className="w-5 h-5 text-gray-500" />
+                            </button>
+                        </div>
+                        <AssistantPreview />
+                    </div>
+                </div>
+
+                {/* Mobile Backdrop for Right Panel */}
+                {showMobileFeatures && (
+                    <div className="xl:hidden fixed inset-0 bg-black/20 z-40 backdrop-blur-sm transition-opacity" onClick={() => setShowMobileFeatures(false)} />
+                )}
+            </div>
           </div>
         );
       case 'files_selected':
         return (
-          <div className="animate-slide-in flex flex-col items-center w-full max-w-4xl mx-auto pt-10 relative z-10 px-4">
-            {/* Ambient Background */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[140%] h-[1000px] -z-10 pointer-events-none select-none opacity-50">
-                <div className="absolute top-[5%] left-[20%] w-[600px] h-[600px] bg-blue-100/30 dark:bg-blue-900/10 rounded-full blur-[100px] mix-blend-multiply dark:mix-blend-screen animate-float-1" />
-                <div className="absolute top-[15%] right-[15%] w-[500px] h-[500px] bg-purple-100/30 dark:bg-purple-900/10 rounded-full blur-[100px] mix-blend-multiply dark:mix-blend-screen animate-float-2" />
+          <div className="relative w-full max-w-[1600px] mx-auto pt-4 lg:pt-8">
+             {/* Same responsive wrapper logic for files_selected state to ensure guidance is available */}
+             <div className="xl:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 animate-slide-in pointer-events-none">
+                <button 
+                    onClick={() => setShowMobileWorkflow(true)} 
+                    className="pointer-events-auto bg-white/90 dark:bg-zinc-800/90 backdrop-blur-md text-[#1d1d1f] dark:text-white border border-gray-200 dark:border-zinc-700 shadow-lg hover:shadow-xl px-5 py-2.5 rounded-full flex items-center gap-2 text-sm font-bold transition-all active:scale-95"
+                >
+                    <ListBulletIcon className="w-4 h-4" /> Workflow
+                </button>
             </div>
 
-            <FilePreview files={files} onRemoveFile={handleRemoveFile} onAddFiles={handleFileChange} />
-            
-            <div className="w-full mt-6 p-8 bg-white/60 dark:bg-zinc-900/40 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-[2.5rem] shadow-sm transition-all hover:shadow-md hover:bg-white/70 dark:hover:bg-zinc-900/50">
-                <div className="mb-6 pl-1">
-                    <label className="block text-xl font-bold text-gray-900 dark:text-gray-100 tracking-tight font-display">Refine Extraction Focus</label>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mt-1">Tell us what matters most in this document.</p>
+            <div className="flex flex-col xl:flex-row items-start justify-center gap-8 w-full relative">
+                {/* Left Panel Wrapper */}
+                <div 
+                    className={`
+                        fixed inset-y-0 left-0 z-50 w-80 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-r border-gray-200 dark:border-zinc-800 shadow-2xl transform transition-transform duration-300 ease-out
+                        ${showMobileWorkflow ? 'translate-x-0' : '-translate-x-full'}
+                        xl:translate-x-0 xl:relative xl:block xl:w-64 xl:bg-transparent xl:dark:bg-transparent xl:border-none xl:shadow-none xl:z-auto xl:sticky xl:top-24
+                    `}
+                >
+                    <div className="h-full overflow-y-auto p-6 xl:p-0 xl:pt-2 ios-scroll">
+                        <div className="xl:hidden flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-[#1d1d1f] dark:text-white">Workflow</h3>
+                            <button onClick={() => setShowMobileWorkflow(false)} className="p-2 bg-gray-100 dark:bg-zinc-800 rounded-full">
+                                <XMarkIcon className="w-5 h-5 text-gray-500" />
+                            </button>
+                        </div>
+                        <GuidanceRail 
+                            fileCount={files.length} 
+                            hasPreset={!!activePresetId} 
+                            hasDescription={description.length > 0} 
+                            processingState={processingState}
+                        />
+                    </div>
                 </div>
                 
-                <div className="relative group">
-                    <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-2xl opacity-0 group-focus-within:opacity-100 transition-opacity blur duration-500"></div>
-                    <textarea 
-                        value={description} 
-                        onChange={(e) => setDescription(e.target.value)} 
-                        placeholder="e.g. Extract the invoice number, total amount, and line items table. Ignore the footer text." 
-                        className="relative w-full h-40 p-5 bg-white/50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-2xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500/50 outline-none font-medium text-gray-700 dark:text-gray-200 transition-all resize-none shadow-inner placeholder:text-gray-400/80 text-[15px] leading-relaxed" 
-                    />
-                </div>
-            </div>
+                {/* Backdrop */}
+                {showMobileWorkflow && (
+                    <div className="xl:hidden fixed inset-0 bg-black/20 z-40 backdrop-blur-sm" onClick={() => setShowMobileWorkflow(false)} />
+                )}
 
-            <div className="w-full mt-10 text-center pb-16">
-                <button 
-                    onClick={startPipeline} 
-                    className="group relative inline-flex items-center justify-center gap-3 bg-[#1d1d1f] dark:bg-white text-white dark:text-[#1d1d1f] font-bold py-4 px-12 rounded-full shadow-xl hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-0.5 active:scale-95 transition-all duration-300 text-base font-display overflow-hidden"
-                >
-                    <span className="relative z-10 flex items-center gap-2">
-                        Extract Data from {files.length} {files.length > 1 ? 'Files' : 'File'}
-                    </span>
-                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
-                </button>
+                <div className="flex-1 flex flex-col items-center px-4 w-full relative z-10 max-w-4xl animate-slide-in min-w-0">
+                    {/* Ambient Background - matching new static gradient style */}
+                    <div className="absolute top-[-100px] left-1/2 -translate-x-1/2 w-[120%] max-w-[1000px] h-[800px] -z-10 pointer-events-none select-none opacity-60 dark:opacity-40">
+                        <div className="absolute top-[10%] left-[20%] w-[50%] h-[50%] rounded-full bg-[#7dd3fc]/20 dark:bg-[#0ea5e9]/10 blur-[120px]" />
+                        <div className="absolute top-[15%] right-[20%] w-[45%] h-[45%] rounded-full bg-[#c4b5fd]/20 dark:bg-[#8b5cf6]/10 blur-[120px]" />
+                        <div className="absolute top-[35%] left-[30%] w-[40%] h-[40%] rounded-full bg-[#67e8f9]/15 dark:bg-[#06b6d4]/5 blur-[100px]" />
+                    </div>
+
+                    <FilePreview files={files} onRemoveFile={handleRemoveFile} onAddFiles={handleFileChange} />
+                    
+                    <div className="w-full mt-6 p-8 bg-white/60 dark:bg-zinc-900/40 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-[2.5rem] shadow-sm transition-all hover:shadow-md hover:bg-white/70 dark:hover:bg-zinc-900/50">
+                        <div className="mb-6 pl-1">
+                            <label className="block text-xl font-bold text-gray-900 dark:text-gray-100 tracking-tight font-display">Refine Extraction Focus</label>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mt-1">Tell us what matters most in this document.</p>
+                        </div>
+                        
+                        <div className="relative group">
+                            <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-2xl opacity-0 group-focus-within:opacity-100 transition-opacity blur duration-500"></div>
+                            <textarea 
+                                value={description} 
+                                onChange={(e) => setDescription(e.target.value)} 
+                                placeholder="e.g. Extract the invoice number, total amount, and line items table. Ignore the footer text." 
+                                className="relative w-full h-40 p-5 bg-white/50 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-2xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500/50 outline-none font-medium text-gray-700 dark:text-gray-200 transition-all resize-none shadow-inner placeholder:text-gray-400/80 text-[15px] leading-relaxed" 
+                            />
+                        </div>
+                    </div>
+
+                    <div className="w-full mt-10 text-center pb-16">
+                        <button 
+                            onClick={startPipeline} 
+                            className="group relative inline-flex items-center justify-center gap-3 bg-[#1d1d1f] dark:bg-white text-white dark:text-[#1d1d1f] font-bold py-4 px-12 rounded-full shadow-xl hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-0.5 active:scale-95 transition-all duration-300 text-base font-display overflow-hidden w-full sm:w-auto"
+                        >
+                            <span className="relative z-10 flex items-center gap-2">
+                                Extract Data from {files.length} {files.length > 1 ? 'Files' : 'File'}
+                            </span>
+                            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+                        </button>
+                    </div>
+                </div>
+                
+                {/* Right Placeholder - Hidden on mobile/files_selected, visible on desktop */}
+                <div className="hidden xl:flex flex-col w-72 space-y-6 sticky top-24 pr-4 opacity-40 grayscale pointer-events-none">
+                     <AssistantPreview />
+                </div>
             </div>
           </div>
         );
       case 'processing':
-        return <div className="flex justify-center items-center h-[60vh]"><ProcessingView files={files} currentIndex={currentlyProcessingFileIndex} /></div>;
+        return <div className="flex justify-center items-center h-[60vh]"><ProcessingView files={files} currentIndex={currentlyProcessingFileIndex} batchResults={batchResults} /></div>;
       case 'awaiting_classification':
         return <ClassificationConfirmationModal isOpen={true} suggestedType={classificationResult?.docType || 'Unknown'} confidence={classificationResult?.confidence || 0} presets={settings.presets} onConfirm={continueSingleFileExtraction} onCancel={handleNewUpload} />;
       case 'batch_complete':
@@ -463,24 +581,24 @@ function App() {
         ) : null;
       case 'error':
         return (
-          <div className="flex flex-col items-center justify-center h-[60vh] animate-fade-in">
-            <div className="text-center p-12 bg-red-50/80 dark:bg-red-900/20 border border-red-100 dark:border-red-500/20 backdrop-blur-xl rounded-3xl max-w-lg mx-auto shadow-xl">
+          <div className="flex flex-col items-center justify-center h-[60vh] animate-fade-in px-4">
+            <div className="text-center p-8 md:p-12 bg-red-50/80 dark:bg-red-900/20 border border-red-100 dark:border-red-500/20 backdrop-blur-xl rounded-3xl max-w-lg mx-auto shadow-xl w-full">
               <h2 className="text-2xl font-bold text-red-700 dark:text-red-300 font-display">Extraction Failed</h2>
-              <p className="text-red-600 dark:text-red-400 mt-3 font-medium">{error}</p>
-              <button onClick={handleNewUpload} className="mt-8 bg-red-500 text-white font-bold py-3 px-8 rounded-full shadow-md transition-all active:scale-95 font-display hover:bg-red-600">Start Over</button>
+              <p className="text-red-600 dark:text-red-400 mt-3 font-medium break-words">{error}</p>
+              <button onClick={handleNewUpload} className="mt-8 bg-red-500 text-white font-bold py-3 px-8 rounded-full shadow-md transition-all active:scale-95 font-display hover:bg-red-600 w-full sm:w-auto">Start Over</button>
             </div>
           </div>
         );
       default:
         return null;
     }
-  }, [processingState, files, extractedData, error, selectedTemplate, description, activePresetId, activePresetName, stats, history, classificationResult, batchResults, currentlyProcessingFileIndex, handleFileChange, handleRemoveFile, handleNewUpload, handleReprocess, handleSelectHistoryItem, clearHistory, settings.presets, settings.documentLanguage, tipIndex, isLeftOpen, isRightOpen, toggleLeftSidebar, toggleRightSidebar]);
+  }, [processingState, files, extractedData, error, selectedTemplate, description, activePresetId, activePresetName, stats, history, classificationResult, batchResults, currentlyProcessingFileIndex, handleFileChange, handleRemoveFile, handleNewUpload, handleReprocess, handleSelectHistoryItem, clearHistory, settings.presets, settings.documentLanguage, isLeftOpen, isRightOpen, toggleLeftSidebar, toggleRightSidebar, blobStyles, showMobileWorkflow, showMobileFeatures]);
   
   const isResultsView = processingState === 'results';
 
   return (
     <div 
-        className={`h-screen w-screen flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 overflow-hidden transition-colors duration-300 font-sans text-[var(--text-primary)] ${settings.highContrast ? 'high-contrast' : ''}`}
+        className={`h-screen w-screen flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 overflow-hidden transition-colors duration-300 font-sans text-[var(--text-primary)]`}
         onDragEnter={handleGlobalDragEnter} onDragLeave={handleGlobalDragLeave} onDragOver={handleGlobalDragOver} onDrop={handleGlobalDrop}
     >
         {/* The Floating Glass Frame */}
@@ -499,15 +617,15 @@ function App() {
         {/* Global Drag & Drop Overlay in Portal */}
         {isDragging && (
             <Portal>
-                <div className="fixed inset-0 z-[100] bg-white/60 dark:bg-black/60 backdrop-blur-xl flex items-center justify-center pointer-events-none animate-fade-in">
-                    <div className="m-8 border-4 border-[#007AFF] border-dashed rounded-[3rem] w-full h-full max-h-[90vh] max-w-[90vw] flex flex-col items-center justify-center p-12 bg-white/40 dark:bg-white/5 shadow-2xl">
+                <div className="fixed inset-0 z-[100] bg-white/60 dark:bg-black/60 backdrop-blur-xl flex items-center justify-center pointer-events-none animate-fade-in p-6">
+                    <div className="border-4 border-[#007AFF] border-dashed rounded-[3rem] w-full h-full max-w-[1200px] max-h-[800px] flex flex-col items-center justify-center p-8 md:p-12 bg-white/40 dark:bg-white/5 shadow-2xl">
                         <div className="p-8 rounded-full bg-[#007AFF]/10 text-[#007AFF] mb-8 animate-bounce">
                             <ArrowUpTrayIcon className="w-20 h-20" />
                         </div>
-                        <h2 className="text-4xl font-extrabold text-[#1d1d1f] dark:text-white font-display text-center">
+                        <h2 className="text-3xl md:text-4xl font-extrabold text-[#1d1d1f] dark:text-white font-display text-center">
                             Drop to Extract
                         </h2>
-                        <p className="mt-4 text-xl text-[#86868b] dark:text-gray-400 font-medium text-center max-w-md">
+                        <p className="mt-4 text-lg md:text-xl text-[#86868b] dark:text-gray-400 font-medium text-center max-w-md">
                             Release your files here to instantly start the AI analysis process.
                         </p>
                     </div>

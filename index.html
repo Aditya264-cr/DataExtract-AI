@@ -43,6 +43,38 @@
       --glass-highlight: rgba(255, 255, 255, 0.15);
     }
 
+    /* High Contrast Overrides */
+    html.high-contrast {
+        --text-secondary: #4b5563; /* Darker gray */
+    }
+    html.high-contrast .text-gray-500,
+    html.high-contrast .text-gray-400 {
+        color: #374151 !important; /* Force darker gray */
+    }
+    html.high-contrast .border-gray-100,
+    html.high-contrast .border-black\/5 {
+        border-color: #cbd5e1 !important; /* Stronger borders */
+    }
+    html.high-contrast input,
+    html.high-contrast textarea {
+        background-color: #fff !important;
+        color: #000 !important;
+        border: 2px solid #000 !important;
+    }
+    html.dark.high-contrast {
+        --text-secondary: #e5e7eb;
+    }
+    html.dark.high-contrast .text-gray-500,
+    html.dark.high-contrast .text-gray-400 {
+        color: #f3f4f6 !important;
+    }
+    html.dark.high-contrast input,
+    html.dark.high-contrast textarea {
+        background-color: #000 !important;
+        color: #fff !important;
+        border: 2px solid #fff !important;
+    }
+
     body {
       font-family: var(--font-body);
       color: var(--text-primary);

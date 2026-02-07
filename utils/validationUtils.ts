@@ -1,13 +1,23 @@
 
 /**
+ * Helper to unwrap value if it's inside a structured object (e.g. { value: 100, confidence: 90 })
+ */
+const unwrapValue = (val: any): any => {
+    if (val && typeof val === 'object' && 'value' in val) {
+        return val.value;
+    }
+    return val;
+};
+
+/**
  * Clean a string to a float number, removing currency symbols and commas.
  */
 export const cleanNumber = (val: any): number => {
-    if (typeof val === 'number') return val;
-    if (!val) return 0;
+    const raw = unwrapValue(val);
+    if (typeof raw === 'number') return raw;
+    if (!raw) return 0;
     // Remove all non-numeric chars except period and minus
-    // Handle simplified cases (does not fully support EU 1.000,00 swapping without locale context)
-    const cleaned = String(val).replace(/[^0-9.-]+/g, '');
+    const cleaned = String(raw).replace(/[^0-9.-]+/g, '');
     return parseFloat(cleaned) || 0;
 };
 
@@ -93,8 +103,8 @@ export const validateDocumentLogic = (data: any): ValidationResult => {
     const dueDateKey = getKey(['due_date', 'due']);
 
     if (dateKey && dueDateKey) {
-        const d1 = new Date(target[dateKey]);
-        const d2 = new Date(target[dueDateKey]);
+        const d1 = new Date(unwrapValue(target[dateKey]));
+        const d2 = new Date(unwrapValue(target[dueDateKey]));
         
         // Check valid dates
         if (!isNaN(d1.getTime()) && !isNaN(d2.getTime())) {
@@ -152,6 +162,14 @@ export const validateDocumentLogic = (data: any): ValidationResult => {
     const validateRecursively = (obj: any, path: string[] = []) => {
         if (!obj || typeof obj !== 'object') return;
 
+        // If it's a field object with 'value', validate the value but stop recursion there (treat as leaf)
+        if ('value' in obj && 'confidence' in obj) {
+             const val = obj.value;
+             const leafKey = path[path.length - 1]; // Use last key for validation context
+             validateField(leafKey, val, path, issues);
+             return;
+        }
+
         if (Array.isArray(obj)) {
             obj.forEach((item, i) => validateRecursively(item, [...path, String(i)]));
             return;
@@ -160,82 +178,89 @@ export const validateDocumentLogic = (data: any): ValidationResult => {
         Object.entries(obj).forEach(([key, value]) => {
             const currentPath = [...path, key];
             
-            if (typeof value === 'object' && value !== null) {
-                validateRecursively(value, currentPath);
+            // Unpack if needed for object traversal, but also check value
+            const unwrapped = unwrapValue(value);
+
+            if (typeof unwrapped === 'object' && unwrapped !== null) {
+                validateRecursively(unwrapped, currentPath);
                 return;
             }
 
-            const strVal = String(value).trim();
-            if (!strVal) return;
-            
-            const lowerKey = key.toLowerCase();
-            
-            // Determine rowIndex if applicable (last numeric part of path)
-            const numericPart = [...path].reverse().find(p => !isNaN(parseInt(p)));
-            const rowIndex = numericPart ? parseInt(numericPart) : undefined;
-
-            // Email
-            if (lowerKey.includes('email')) {
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(strVal)) {
-                    issues.push({
-                        type: 'format',
-                        message: `Invalid email format: "${strVal}"`,
-                        severity: 'warning',
-                        involvedKeys: [key],
-                        rowIndex
-                    });
-                }
-            }
-            
-            // Phone - basic check for minimal format
-            if ((lowerKey.includes('phone') || lowerKey.includes('mobile') || lowerKey.includes('fax')) && !lowerKey.includes('id')) {
-                 const allowed = /^[0-9+\-().\s]+$/;
-                 const digits = strVal.replace(/\D/g, '').length;
-                 // Must have some digits and mostly allowed chars
-                 if (!allowed.test(strVal) || digits < 5) {
-                     // Allow "Ext." but flag other text
-                     if (/[a-zA-Z]/.test(strVal) && !strVal.toLowerCase().includes('ext')) {
-                         issues.push({
-                            type: 'format',
-                            message: `Suspicious phone format: "${strVal}"`,
-                            severity: 'warning',
-                            involvedKeys: [key],
-                            rowIndex
-                        });
-                     }
-                 }
-            }
-
-            // Date validation (ISO preferred or parsable)
-            if ((lowerKey.includes('date') || lowerKey.includes('dob') || lowerKey.includes('due') || lowerKey.includes('expires')) && 
-                !lowerKey.includes('update') && !lowerKey.includes('candidate')) {
-                
-                const d = new Date(strVal);
-                if (isNaN(d.getTime())) {
-                     issues.push({
-                        type: 'format',
-                        message: `Invalid date format: "${strVal}"`,
-                        severity: 'warning',
-                        involvedKeys: [key],
-                        rowIndex
-                    });
-                }
-            }
-            
-            // URL
-            if (lowerKey.includes('website') || lowerKey.includes('url')) {
-                if (!strVal.includes('.') || strVal.includes(' ')) {
-                     issues.push({
-                        type: 'format',
-                        message: `Invalid URL format: "${strVal}"`,
-                        severity: 'warning',
-                        involvedKeys: [key],
-                        rowIndex
-                    });
-                }
-            }
+            validateField(key, unwrapped, currentPath, issues);
         });
+    };
+
+    const validateField = (key: string, value: any, path: string[], issuesList: LogicIssue[]) => {
+        const strVal = String(value).trim();
+        if (!strVal) return;
+        
+        const lowerKey = key.toLowerCase();
+        
+        // Determine rowIndex if applicable (last numeric part of path)
+        const numericPart = [...path].reverse().find(p => !isNaN(parseInt(p)));
+        const rowIndex = numericPart ? parseInt(numericPart) : undefined;
+
+        // Email
+        if (lowerKey.includes('email')) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(strVal)) {
+                issuesList.push({
+                    type: 'format',
+                    message: `Invalid email format: "${strVal}"`,
+                    severity: 'warning',
+                    involvedKeys: [key],
+                    rowIndex
+                });
+            }
+        }
+        
+        // Phone - basic check for minimal format
+        if ((lowerKey.includes('phone') || lowerKey.includes('mobile') || lowerKey.includes('fax')) && !lowerKey.includes('id')) {
+             const allowed = /^[0-9+\-().\s]+$/;
+             const digits = strVal.replace(/\D/g, '').length;
+             // Must have some digits and mostly allowed chars
+             if (!allowed.test(strVal) || digits < 5) {
+                 // Allow "Ext." but flag other text
+                 if (/[a-zA-Z]/.test(strVal) && !strVal.toLowerCase().includes('ext')) {
+                     issuesList.push({
+                        type: 'format',
+                        message: `Suspicious phone format: "${strVal}"`,
+                        severity: 'warning',
+                        involvedKeys: [key],
+                        rowIndex
+                    });
+                 }
+             }
+        }
+
+        // Date validation (ISO preferred or parsable)
+        if ((lowerKey.includes('date') || lowerKey.includes('dob') || lowerKey.includes('due') || lowerKey.includes('expires')) && 
+            !lowerKey.includes('update') && !lowerKey.includes('candidate')) {
+            
+            const d = new Date(strVal);
+            if (isNaN(d.getTime())) {
+                 issuesList.push({
+                    type: 'format',
+                    message: `Invalid date format: "${strVal}"`,
+                    severity: 'warning',
+                    involvedKeys: [key],
+                    rowIndex
+                });
+            }
+        }
+        
+        // URL
+        if (lowerKey.includes('website') || lowerKey.includes('url')) {
+            if (!strVal.includes('.') || strVal.includes(' ')) {
+                 issuesList.push({
+                    type: 'format',
+                    message: `Invalid URL format: "${strVal}"`,
+                    severity: 'warning',
+                    involvedKeys: [key],
+                    rowIndex
+                });
+            }
+        }
     };
 
     validateRecursively(data, []);

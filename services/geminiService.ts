@@ -4,7 +4,11 @@ import type { UploadedFile, ExtractedData, AISummaryData, ChatMessage, Highlight
 import { fileToBase64 } from '../utils/fileUtils';
 
 // Always initialize GoogleGenAI using the process.env.API_KEY environment variable.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const apiKey = process.env.API_KEY;
+if (!apiKey) {
+    console.warn("API_KEY is missing. Calls to Google Gemini will likely fail. Check your environment configuration.");
+}
+const ai = new GoogleGenAI({ apiKey: apiKey || '' });
 
 // Model definitions based on task complexity
 const MODEL_LITE = "gemini-2.5-flash-lite";      // Low-latency, cost-effective (Updated to 2.5 Flash Lite)
@@ -110,12 +114,17 @@ export const classifyDocument = async (files: UploadedFile[], language: string):
     const languageHint = language !== 'auto' ? ` The document's primary language is ${language}.` : '';
     const prompt = `Identify the type of the document(s).${languageHint} Return a single JSON object with two keys: 'docType' (e.g., 'Invoice', 'Resume', 'Contract') and 'confidence' (0-100 certainty).`;
     
+    // Ensure MIME type is valid
     const imageParts = await Promise.all(
         files.map(async (file) => ({
-            inlineData: { mimeType: file.file.type, data: await fileToBase64(file.file) },
+            inlineData: { 
+                mimeType: file.file.type || 'application/pdf', 
+                data: await fileToBase64(file.file) 
+            },
         }))
     );
 
+    let responseText = '';
     try {
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: MODEL_LITE, // Use Flash Lite for ultra-fast classification
@@ -123,7 +132,7 @@ export const classifyDocument = async (files: UploadedFile[], language: string):
             config: { responseMimeType: "application/json" },
         }));
         
-        const responseText = response.text;
+        responseText = response.text || '';
         if (!responseText) {
             throw new Error("Classification returned empty response.");
         }
@@ -134,8 +143,9 @@ export const classifyDocument = async (files: UploadedFile[], language: string):
             confidence: parsed.confidence || 0,
         };
     } catch (e) {
-        console.error("Classification error:", e);
+        console.error("Classification error. Response was:", responseText, e);
         if (e instanceof Error && e.message.includes("Quota")) throw e;
+        // Don't crash on classification failure, just fallback
         return { docType: "Unknown", confidence: 0 };
     }
 };
@@ -148,9 +158,14 @@ export const performExtraction = async (
     editedData?: ExtractedData
 ): Promise<ExtractedData> => {
     const languageHint = language !== 'auto' ? ` The content language is ${language}.` : '';
+    
+    // Ensure MIME type is valid (fallback to PDF if empty, or octet-stream)
     const imageParts = await Promise.all(
         files.map(async (file) => ({
-            inlineData: { mimeType: file.file.type, data: await fileToBase64(file.file) },
+            inlineData: { 
+                mimeType: file.file.type || 'application/pdf', 
+                data: await fileToBase64(file.file) 
+            },
         }))
     );
 
@@ -288,6 +303,8 @@ IMPORTANT BEHAVIOR RULES
 ${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)}` : ''}
 `;
 
+    let responseText = '';
+
     try {
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: MODEL_PRO, // gemini-3-pro-preview for deep analysis
@@ -299,12 +316,18 @@ ${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)
             },
         }));
 
-        const responseText = response.text;
+        responseText = response.text || '';
         if (!responseText) {
             throw new Error("Extraction engine returned an empty response.");
         }
         
-        const parsed = JSON.parse(cleanJsonOutput(responseText));
+        let parsed;
+        try {
+            parsed = JSON.parse(cleanJsonOutput(responseText));
+        } catch (jsonErr) {
+            console.error("JSON Parse Failure. Raw Text:", responseText);
+            throw new Error(`The API returned invalid data. Check Developer Console for raw response. (Error: ${jsonErr})`);
+        }
         
         const highlights: Highlight[] = [];
         const processField = (field: any, name: string) => {
@@ -363,9 +386,21 @@ ${editedData ? `PREVIOUS CONTEXT (User Edits): ${JSON.stringify(editedData.data)
         };
 
     } catch (e) {
-        console.error(e);
-        if (e instanceof Error && e.message.includes("Quota")) throw e;
-        throw new Error("Extraction engine failed to parse document content. Please try again.");
+        console.error("Extraction Critical Failure:", e);
+        if (responseText) {
+            console.error("Raw response content that failed:", responseText);
+        }
+        
+        if (e instanceof Error) {
+            if (e.message.includes("Quota") || e.message.includes("429")) {
+                throw new Error("Google Gemini API Quota Exceeded. Please check your billing or try again later.");
+            }
+            if (e.message.includes("API key")) {
+                throw new Error("Invalid or missing API Key. Please configure process.env.API_KEY.");
+            }
+        }
+        
+        throw new Error("Extraction failed to parse document content. Please check the console for the raw API response.");
     }
 };
 
@@ -410,7 +445,7 @@ export const getExplanationForField = async (fieldName: string, fieldValue: stri
 2. Labeling: Is there an explicit label nearby (e.g., "Total:", "Date:")?
 3. Reasoning: Why is this value correct? Did you correct any OCR errors or formatting?
 Be concise and direct.`;
-    const imageParts = await Promise.all(files.map(async (f) => ({ inlineData: { mimeType: f.file.type, data: await fileToBase64(f.file) } })));
+    const imageParts = await Promise.all(files.map(async (f) => ({ inlineData: { mimeType: f.file.type || 'application/pdf', data: await fileToBase64(f.file) } })));
     try {
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({ 
             model: MODEL_PRO, // Use Pro with thinking for detailed visual reasoning

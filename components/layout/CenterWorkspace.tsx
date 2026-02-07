@@ -27,6 +27,10 @@ import { MapPinIcon } from '../icons/MapPinIcon';
 import { EnvelopeIcon } from '../icons/EnvelopeIcon';
 import { PhoneIcon } from '../icons/PhoneIcon';
 import { ArrowDownTrayIcon } from '../icons/ArrowDownTrayIcon';
+import { AlignLeftIcon } from '../icons/AlignLeftIcon';
+import { AlignCenterIcon } from '../icons/AlignCenterIcon';
+import { AlignRightIcon } from '../icons/AlignRightIcon';
+import { ClearFormattingIcon } from '../icons/ClearFormattingIcon';
 
 interface CenterWorkspaceProps {
     initialData: ExtractedData;
@@ -53,7 +57,7 @@ const ConfidenceBadge: React.FC<{ score: number | undefined }> = ({ score }) => 
     else if (score >= 60) colorClass = 'bg-[#FF9500] text-white'; 
 
     return (
-        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold ${colorClass} ml-2 flex-shrink-0 animate-fade-in`}>
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${colorClass} ml-2 flex-shrink-0 animate-fade-in shadow-sm`}>
             {score}%
         </span>
     );
@@ -72,9 +76,16 @@ const EditableInput = ({
         onBlur={onBlur}
         aria-label={label}
         disabled={disabled}
-        className={`w-full bg-transparent p-0 m-0 border-none focus:ring-1 focus:ring-blue-500 focus:bg-blue-500/10 rounded-md px-1 dark:text-gray-200 cursor-pointer transition-all ${isActive ? 'bg-blue-500/20 ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-zinc-800' : ''} ${isEdited ? 'bg-yellow-100 dark:bg-yellow-500/20' : ''} ${disabled ? 'cursor-not-allowed opacity-70 text-gray-500 italic' : ''} ${className || ''}`}
+        className={`w-full bg-transparent p-1.5 -ml-1.5 border-none rounded-md transition-all text-sm font-medium ${isActive ? 'bg-blue-50 dark:bg-blue-900/30 ring-1 ring-blue-200 dark:ring-blue-800' : 'hover:bg-gray-100 dark:hover:bg-zinc-800'} ${isEdited ? 'bg-amber-50 dark:bg-amber-900/20' : ''} ${disabled ? 'opacity-60 cursor-not-allowed italic' : ''} ${className || ''} focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-black outline-none`}
     />
 );
+
+const getConfidenceColor = (score: number | undefined) => {
+    if (score === undefined) return 'text-gray-900 dark:text-gray-100';
+    if (score >= 85) return 'text-green-700 dark:text-green-400';
+    if (score >= 60) return 'text-orange-700 dark:text-orange-400';
+    return 'text-red-700 dark:text-red-400';
+};
 
 export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, editedData, onDataChange, file, onNewUpload, onReprocess }) => {
     const { settings } = useContext(SettingsContext);
@@ -95,6 +106,9 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
     const [searchQuery, setSearchQuery] = useState('');
     const [showOnlyIssues, setShowOnlyIssues] = useState(false);
     
+    // Rich Text State
+    const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('left');
+    
     // Table Discovery State using Adapter
     const [activeTableIndex, setActiveTableIndex] = useState(0);
     const tables = useMemo(() => extractTables(editedData), [editedData]);
@@ -103,7 +117,18 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
     const editorRef = useRef<HTMLDivElement>(null);
     const resultsContentRef = useRef<HTMLDivElement>(null);
 
+    // Validation Results
+    // 1. Flattened validation for Key-Value view
     const validationResult = useMemo(() => validateDocumentLogic(flattenObject(editedData)), [editedData]);
+    
+    // 2. Table-specific validation for Grid view (enables row highlighting)
+    const currentTable = tables[activeTableIndex];
+    const gridValidationResult = useMemo(() => {
+        if (activeFormat === 'grid' && currentTable?.data) {
+            return validateDocumentLogic(currentTable.data);
+        }
+        return { isValid: true, issues: [] };
+    }, [activeFormat, currentTable]);
     
     // Reset table index if data structure changes significantly
     useEffect(() => {
@@ -116,6 +141,37 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         setSearchQuery('');
         setShowOnlyIssues(false);
     }, [activeFormat]);
+
+    // Rich Text Editor Helpers
+    const updateToolbarState = useCallback(() => {
+        if (document.queryCommandState('justifyCenter')) setTextAlign('center');
+        else if (document.queryCommandState('justifyRight')) setTextAlign('right');
+        else setTextAlign('left');
+    }, []);
+
+    const handleFormat = (command: string) => {
+        document.execCommand(command, false);
+        if (editorRef.current) {
+            editorRef.current.focus();
+            updateToolbarState();
+            // Mark as dirty so changes persist over auto-generation
+            setIsTextDirty(true);
+            setTextContent(editorRef.current.innerHTML);
+        }
+    };
+
+    // Keep toolbar state in sync with selection
+    useEffect(() => {
+        if (activeFormat !== 'text') return;
+        const handleSelectionChange = () => {
+            // Only update if selection is inside editor
+            if (editorRef.current && (document.activeElement === editorRef.current || editorRef.current.contains(document.activeElement))) {
+                updateToolbarState();
+            }
+        };
+        document.addEventListener('selectionchange', handleSelectionChange);
+        return () => document.removeEventListener('selectionchange', handleSelectionChange);
+    }, [activeFormat, updateToolbarState]);
 
     const confidenceMap = useMemo(() => {
         const map = new Map<string, number>();
@@ -173,11 +229,11 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
              }
         }
         // 2. Phone
-        if ((lowerKey.includes('phone') || lowerKey.includes('mobile') || lowerKey.includes('fax') || lowerKey.includes('contact')) && value.length > 5 && /[0-9]/.test(value)) {
+        if ((lowerKey.includes('phone') || lowerKey.includes('mobile') || lowerKey.includes('fax') || lowerKey.includes('contact') || lowerKey.includes('tel') || lowerKey.includes('cell')) && value.length > 5 && /[0-9]/.test(value)) {
             return { icon: PhoneIcon, label: "Call", action: () => window.open(`tel:${value.replace(/[^\d+]/g, '')}`) };
         }
         // 3. Date -> Google Calendar
-        if ((lowerKey.includes('date') || lowerKey.includes('due') || lowerKey.includes('expires') || lowerKey.includes('schedule')) && !isNaN(Date.parse(value)) && /\d/.test(value)) {
+        if ((lowerKey.includes('date') || lowerKey.includes('due') || lowerKey.includes('expires') || lowerKey.includes('schedule') || lowerKey.includes('dob') || lowerKey.includes('birth') || lowerKey.includes('deadline')) && !isNaN(Date.parse(value)) && /\d/.test(value)) {
             return {
                 icon: CalendarIcon, label: "Add to Calendar",
                 action: () => {
@@ -192,7 +248,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
             };
         }
         // 4. Address -> Google Maps
-        if ((lowerKey.includes('address') || lowerKey.includes('location') || lowerKey.includes('city') || lowerKey.includes('street') || lowerKey.includes('venue')) && value.length > 5) {
+        if ((lowerKey.includes('address') || lowerKey.includes('location') || lowerKey.includes('city') || lowerKey.includes('street') || lowerKey.includes('venue') || lowerKey.includes('residence') || lowerKey.includes('office') || lowerKey.includes('hq') || lowerKey.includes('destination')) && value.length > 5) {
             if (!value.includes('http') && !/^[0-9]+$/.test(value)) {
                 return { icon: MapPinIcon, label: "Open Maps", action: () => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value.replace(/\n/g, ', '))}`, '_blank') };
             }
@@ -201,26 +257,28 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
     };
 
     const generateTextSummary = useCallback((dataToSummarize: ExtractedData, currentActiveField: string | null): string => {
-        const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-        let html = `<div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.6; color: inherit;">`;
-        html += `<h1 style="font-size: 1.25em; font-weight: 800; margin-bottom: 0.5em; text-transform: uppercase;">${dataToSummarize.documentType}</h1>`;
-        html += `<div style="opacity: 0.5; margin-bottom: 1em;">------------------------------------</div>`;
-        html += `<div style="margin-bottom: 1.5em;">Date: ${dateStr}<br/>Confidence Score: ${dataToSummarize.confidenceScore}%</div>`;
-        if (dataToSummarize.rawTextSummary) {
-             html += `<div style="margin-bottom: 1.5em; font-style: italic;">"${dataToSummarize.rawTextSummary}"</div>`;
-        }
-        const createValueSpan = (key: string, val: any) => {
-            const strVal = String(val);
-            const isActive = currentActiveField === key;
-            const bgClass = isActive ? 'background-color: rgba(255, 215, 0, 0.3);' : '';
-            return `<span data-field-name="${key}" style="${bgClass} cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: rgba(100,100,100,0.5);">${strVal}</span>`;
-        };
-        const kvData = flattenObject(dataToSummarize);
-        Object.entries(kvData).forEach(([k, v]) => { html += `<div><strong>${k}:</strong> ${createValueSpan(k, v)}</div>`; });
-        html += `<div style="margin-top: 2em; opacity: 0.5;">------------------------------------</div>`;
-        html += `<div>End of Report</div></div>`;
-        return html;
-    }, []);
+        // We use the new formatter logic but wrap it in HTML structures for display
+        const reportText = formatAsOfficialDocument(dataToSummarize, settings.showWatermark);
+        
+        // Escape HTML basics first
+        let html = reportText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        
+        // --- TEXT VIEW INTERACTIVITY ---
+        // We inject interactivity into standard field lines "   • Label: Value"
+        // This allows the "Text View" to also have "Explain This" functionality via spans with data attributes.
+        // Regex matches lines starting with "   • "
+        html = html.replace(/^([ \t]*•\s+)([^:]+)(:\s+)(.+)$/gm, (match, prefix, label, separator, value) => {
+            const fieldName = label.trim();
+            // We wrap the whole line content in a span that triggers the click handler
+            // And add a visual "Explain" icon at the end that appears on hover
+            const explainIcon = `<span class="inline-flex items-center justify-center opacity-0 group-hover/line:opacity-100 transition-opacity absolute right-0 top-1/2 -translate-y-1/2 translate-x-full pl-2 pointer-events-none"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-amber-500 bg-amber-50 rounded-full p-0.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m-6.375-3.375a3 3 0 0 1 3-3h1.5a3 3 0 0 1 3 3v.375M17.25 12A5.25 5.25 0 0 1 12 17.25 5.25 5.25 0 0 1 6.75 12A5.25 5.25 0 0 1 12 6.75a5.25 5.25 0 0 1 5.25 5.25Z" /></svg></span>`;
+            
+            return `${prefix}<span class="group/line relative cursor-help border-b border-dotted border-transparent hover:border-gray-300 dark:hover:border-gray-600 transition-colors" data-field-name="${fieldName}">${label}${separator}${value}${explainIcon}</span>`;
+        });
+
+        // Wrap the whole thing in a styled container
+        return `<div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.6; color: inherit; white-space: pre-wrap;">${html}</div>`;
+    }, [settings.showWatermark]);
 
     const triggerExplanation = useCallback(async (fieldName: string, fieldValue: string) => {
         setExplanationTarget({ fieldName, fieldValue });
@@ -268,7 +326,8 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         if (!table.data || table.data.length === 0) return;
         const headers = Object.keys(table.data[0]);
         const rows = table.data.map(row => headers.map(header => {
-            const val = row[header];
+            const cell = row[header];
+            const val = cell && typeof cell === 'object' && 'value' in cell ? cell.value : cell;
             const str = String(val ?? '').replace(/"/g, '""');
             return `"${str}"`;
         }).join(','));
@@ -314,9 +373,17 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
         const editor = editorRef.current;
         if (!editor) return;
         const handleEditorClick = (e: MouseEvent) => {
-            const target = e.target as HTMLElement;
+            let target = e.target as HTMLElement;
+            // Handle clicks on children (like the svg icon or span text)
+            if (!target.hasAttribute('data-field-name')) {
+                const parent = target.closest('[data-field-name]');
+                if (parent) target = parent as HTMLElement;
+            }
+            
             const fieldName = target.getAttribute('data-field-name');
             if (fieldName) {
+                // For text view, value is part of the innerText (Label: Value), 
+                // but for explanation context the full line is actually quite good.
                 const fieldValue = target.innerText;
                 triggerExplanation(fieldName, fieldValue);
             }
@@ -326,13 +393,61 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
     }, [triggerExplanation, activeFormat]);
 
     const isSearchable = activeFormat === 'key_value' || activeFormat === 'grid';
+    
+    // Determine if we have issues to show based on active format
+    const hasIssues = activeFormat === 'key_value' 
+        ? validationResult.issues.length > 0 
+        : (activeFormat === 'grid' && gridValidationResult.issues.length > 0);
+        
+    const issueCount = activeFormat === 'key_value' 
+        ? validationResult.issues.length 
+        : gridValidationResult.issues.length;
 
     const renderData = (format: OutputFormat, dataToRender: ExtractedData) => {
         switch (format) {
-            case 'json': return <div className="p-6 h-full overflow-auto ios-scroll"><pre className="text-sm font-mono text-gray-800 dark:text-gray-300">{JSON.stringify(dataToRender.structuredData, null, 2)}</pre></div>;
+            case 'json': return <div className="p-8 h-full overflow-auto ios-scroll"><pre className="text-xs font-mono text-gray-800 dark:text-gray-300 whitespace-pre-wrap">{JSON.stringify(dataToRender.structuredData, null, 2)}</pre></div>;
             case 'text': return (
-                <div className="flex flex-col h-full bg-white dark:bg-zinc-900 relative">
-                    <div ref={editorRef} contentEditable onInput={(e) => { setTextContent(e.currentTarget.innerHTML); setIsTextDirty(true); }} className="flex-grow p-10 outline-none overflow-y-auto ios-scroll max-w-none min-h-[400px] text-gray-800 dark:text-gray-200 selection:bg-yellow-200/50 dark:selection:bg-yellow-900/30" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: '0.9rem' }} />
+                <div className="flex flex-col h-full bg-white dark:bg-zinc-900 relative rounded-2xl overflow-hidden">
+                    {/* Rich Text Toolbar */}
+                    <div className="flex items-center gap-1 p-2 border-b border-gray-100 dark:border-zinc-800 bg-gray-50/80 dark:bg-zinc-800/80 backdrop-blur-md z-10">
+                        <Tooltip text="Align Left">
+                            <button 
+                                onClick={() => handleFormat('justifyLeft')} 
+                                className={`p-1.5 rounded-lg transition-all ${textAlign === 'left' ? 'bg-white dark:bg-zinc-600 shadow-sm text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-zinc-700'}`}
+                            >
+                                <AlignLeftIcon className="w-4 h-4" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip text="Align Center">
+                            <button 
+                                onClick={() => handleFormat('justifyCenter')} 
+                                className={`p-1.5 rounded-lg transition-all ${textAlign === 'center' ? 'bg-white dark:bg-zinc-600 shadow-sm text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-zinc-700'}`}
+                            >
+                                <AlignCenterIcon className="w-4 h-4" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip text="Align Right">
+                            <button 
+                                onClick={() => handleFormat('justifyRight')} 
+                                className={`p-1.5 rounded-lg transition-all ${textAlign === 'right' ? 'bg-white dark:bg-zinc-600 shadow-sm text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-zinc-700'}`}
+                            >
+                                <AlignRightIcon className="w-4 h-4" />
+                            </button>
+                        </Tooltip>
+                        
+                        <div className="w-px h-4 bg-gray-300 dark:bg-zinc-700 mx-2"></div>
+                        
+                        <Tooltip text="Clear Formatting">
+                            <button 
+                                onClick={() => handleFormat('removeFormat')} 
+                                className="p-1.5 rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 transition-all"
+                            >
+                                <ClearFormattingIcon className="w-4 h-4" />
+                            </button>
+                        </Tooltip>
+                    </div>
+                    
+                    <div ref={editorRef} contentEditable onInput={(e) => { setTextContent(e.currentTarget.innerHTML); setIsTextDirty(true); }} className="flex-grow p-8 outline-none overflow-y-auto ios-scroll max-w-none text-gray-800 dark:text-gray-200 selection:bg-yellow-200/50 dark:selection:bg-yellow-900/30" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: '0.9rem' }} />
                 </div>
             );
             case 'key_value':
@@ -350,9 +465,9 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                 });
                 if (filteredEntries.length === 0) return <div className="p-12 text-center text-gray-500 font-medium">No matching fields found.</div>;
                 return (
-                    <div className="p-6 space-y-4 h-full overflow-auto ios-scroll">
+                    <div className="flex flex-col h-full overflow-y-auto ios-scroll">
                         {!showOnlyIssues && validationResult.issues.length > 0 && (
-                            <div className="mb-6 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl space-y-2">
+                            <div className="mx-6 mt-6 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl space-y-2">
                                 <div className="flex items-center gap-2 mb-2">
                                      <ShieldCheckIcon className="w-5 h-5 text-red-500" />
                                      <h4 className="font-bold text-red-800 dark:text-red-300">Logic & Consistency Checks</h4>
@@ -365,57 +480,87 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                                 ))}
                             </div>
                         )}
-                        {filteredEntries.map(([key, value]) => {
-                             const rootKey = key.split(' > ').pop()?.toLowerCase() || '';
-                             const score = confidenceMap.get(key) || confidenceMap.get(rootKey); 
-                             const isLowConfidence = score !== undefined && score < 90;
-                             const isVeryLowConfidence = score !== undefined && score < 80;
-                             const logicIssue = validationResult.issues.find(issue => issue.involvedKeys.some(k => key.toLowerCase().includes(k.toLowerCase())));
-                             const isLogicIssue = !!logicIssue;
-                             const issueColorClass = logicIssue?.severity === 'error' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/30' : 'bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-900/30';
-                             const isListSummary = typeof value === 'string' && (value.startsWith('[Table') || value.startsWith('[List'));
-                             const actionItem = getActionForValue(key, String(value));
+                        <div className="pb-6">
+                            {filteredEntries.map(([key, value], idx) => {
+                                 const rootKey = key.split(' > ').pop()?.toLowerCase() || '';
+                                 const score = confidenceMap.get(key) || confidenceMap.get(rootKey); 
+                                 const isVeryLowConfidence = score !== undefined && score < 80;
+                                 
+                                 const logicIssue = validationResult.issues.find(issue => issue.involvedKeys.some(k => key.toLowerCase().includes(k.toLowerCase())));
+                                 const isLogicIssue = !!logicIssue;
+                                 
+                                 const isListSummary = typeof value === 'string' && (value.startsWith('[Table') || value.startsWith('[List'));
+                                 const actionItem = getActionForValue(key, String(value));
+                                 
+                                 const isUnreadable = String(value) === '[Unreadable]';
 
-                             return (
-                                <div key={key} className={`flex items-center justify-between p-3 rounded-2xl border transition-all group ${activeField === key ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-black/5 dark:border-white/5'} ${isLogicIssue ? issueColorClass : (isLowConfidence ? 'bg-amber-50 dark:bg-amber-500/10' : 'bg-gray-50/50 dark:bg-zinc-800/50')}`}>
-                                    <div className="flex items-center gap-2 overflow-hidden w-1/3">
-                                        {isLogicIssue && <ExclamationTriangleIcon className={`w-4 h-4 flex-shrink-0 ${logicIssue?.severity === 'error' ? 'text-red-500' : 'text-orange-500'}`} />}
-                                        {!isLogicIssue && isVeryLowConfidence && <Tooltip text="Low Confidence"><ExclamationTriangleIcon className="w-4 h-4 text-amber-500 flex-shrink-0" /></Tooltip>}
-                                        <span className="text-sm font-bold uppercase tracking-wider truncate" title={key}>{key}</span>
-                                        {settings.showConfidence && <ConfidenceBadge score={score} />}
-                                    </div>
-                                    <div className="text-sm font-medium ml-4 flex-1 flex items-center gap-2">
-                                        <div className="flex-1 flex items-center gap-2">
-                                            <EditableInput
-                                                value={String(value)}
-                                                onChange={(e) => handleKeyValueChange(key, e.target.value)}
-                                                onBlur={(e) => handleInputBlur(key, e.target.value)}
-                                                onFocus={() => { setActiveField(key); setShowSplitView(true); }}
-                                                label={key}
-                                                isActive={activeField === key}
-                                                isEdited={editedFields.has(key)}
-                                                disabled={isListSummary}
-                                                className={isLogicIssue ? (logicIssue?.severity === 'error' ? 'text-red-900 dark:text-red-100' : 'text-orange-900 dark:text-orange-100') : (isLowConfidence ? 'text-amber-900 dark:text-amber-100' : '')}
-                                            />
-                                            {actionItem && !isListSummary && (
-                                                <Tooltip text={actionItem.label} position="top">
-                                                    <button onClick={actionItem.action} className="p-1.5 text-gray-400 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors flex-shrink-0">
-                                                        <actionItem.icon className="w-4 h-4" />
-                                                    </button>
-                                                </Tooltip>
-                                            )}
+                                 // Determine text color based on priority: Logic Error > Unreadable > Confidence Score
+                                 let textColorClass = getConfidenceColor(score);
+                                 if (isLogicIssue) {
+                                     textColorClass = logicIssue?.severity === 'error' ? 'text-red-700 dark:text-red-300' : 'text-orange-700 dark:text-orange-300';
+                                 }
+                                 
+                                 // Highlight unreadable fields prominently
+                                 let finalInputClass = `text-base ${textColorClass}`;
+                                 if (isUnreadable) {
+                                     finalInputClass = `text-sm bg-red-100/80 dark:bg-red-900/40 text-red-600 dark:text-red-300 font-bold tracking-wide px-2 rounded border border-red-200 dark:border-red-800/50 italic shadow-sm`;
+                                 }
+
+                                 // Cleaner List Row Style
+                                 return (
+                                    <div 
+                                        key={key} 
+                                        className={`group relative flex items-start gap-4 px-6 py-4 border-b border-gray-100 dark:border-zinc-800/60 last:border-0 hover:bg-gray-50/50 dark:hover:bg-white/[0.02] transition-colors ${activeField === key ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}
+                                    >
+                                        <div className="w-1/3 min-w-[180px] max-w-[300px] flex-shrink-0 pt-1.5">
+                                            <div className="flex items-center gap-2">
+                                                {isLogicIssue && <ExclamationTriangleIcon className={`w-3.5 h-3.5 flex-shrink-0 ${logicIssue?.severity === 'error' ? 'text-red-500' : 'text-orange-500'}`} />}
+                                                {!isLogicIssue && isVeryLowConfidence && !isUnreadable && <Tooltip text="Low Confidence"><ExclamationTriangleIcon className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" /></Tooltip>}
+                                                {isUnreadable && <Tooltip text="Content could not be read"><XMarkIcon className="w-3.5 h-3.5 text-red-500 flex-shrink-0" /></Tooltip>}
+                                                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 break-words leading-relaxed" title={key}>{key}</p>
+                                            </div>
+                                            {settings.showConfidence && !isUnreadable && <div className="mt-1"><ConfidenceBadge score={score} /></div>}
                                         </div>
-                                        {isListSummary ? (
-                                            <button onClick={() => setActiveFormat('grid')} className="p-1.5 text-gray-400 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"><TableCellsIcon className="w-4 h-4" /></button>
-                                        ) : (
-                                            <Tooltip text="Explain extraction logic" position="left">
-                                                <button onClick={() => triggerExplanation(key, String(value))} className="p-1.5 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all"><LightBulbIcon className="w-4 h-4" /></button>
-                                            </Tooltip>
-                                        )}
+                                        
+                                        <div className="flex-1 min-w-0 relative">
+                                            <div className="flex items-start gap-2">
+                                                <div className="flex-1">
+                                                    <EditableInput
+                                                        value={String(value)}
+                                                        onChange={(e) => handleKeyValueChange(key, e.target.value)}
+                                                        onBlur={(e) => handleInputBlur(key, e.target.value)}
+                                                        onFocus={() => { setActiveField(key); setShowSplitView(true); }}
+                                                        label={key}
+                                                        isActive={activeField === key}
+                                                        isEdited={editedFields.has(key)}
+                                                        disabled={isListSummary}
+                                                        className={finalInputClass}
+                                                    />
+                                                </div>
+                                                
+                                                {/* Action Buttons: Fade in on hover */}
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                                    {actionItem && !isListSummary && !isUnreadable && (
+                                                        <Tooltip text={actionItem.label} position="top">
+                                                            <button onClick={actionItem.action} className="p-1.5 text-gray-400 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors">
+                                                                <actionItem.icon className="w-4 h-4" />
+                                                            </button>
+                                                        </Tooltip>
+                                                    )}
+                                                    {isListSummary ? (
+                                                        <button onClick={() => setActiveFormat('grid')} className="p-1.5 text-gray-400 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"><TableCellsIcon className="w-4 h-4" /></button>
+                                                    ) : (
+                                                        <Tooltip text="Explain extraction logic" position="left">
+                                                            <button onClick={() => triggerExplanation(key, String(value))} className="p-1.5 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-all"><LightBulbIcon className="w-4 h-4" /></button>
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
                     </div>
                 );
             case 'grid':
@@ -424,58 +569,143 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                 if (!currentTable || !currentTable.data || currentTable.data.length === 0) return <div className="p-6 text-center text-gray-500">Empty table data.</div>;
                 const keys = Object.keys(currentTable.data[0]);
                 const filteredRows = currentTable.data.filter((row, i) => {
+                    // Search Logic
                     if (searchQuery) {
                         const q = searchQuery.toLowerCase();
-                        if (!Object.values(row).some(v => String(v).toLowerCase().includes(q))) return false;
+                        // Unpack row values for search
+                        const values = Object.values(row).map((v: any) => (v && typeof v === 'object' && 'value' in v) ? v.value : v);
+                        if (!values.some(v => String(v).toLowerCase().includes(q))) return false;
+                    }
+                    // Filter Logic
+                    if (showOnlyIssues) {
+                        const rowHasIssue = gridValidationResult.issues.some(issue => issue.rowIndex === i);
+                        if (!rowHasIssue) return false;
                     }
                     return true;
                 });
-                if (filteredRows.length === 0) return <div className="p-12 text-center text-gray-500 font-medium">No matching rows found.</div>;
+                if (filteredRows.length === 0) return <div className="p-12 text-center text-gray-500 font-medium">No matching table rows found.</div>;
+                
                 return (
-                    <div className="flex flex-col h-full overflow-hidden">
-                        <div className="flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-black/5 dark:border-white/5 bg-gray-50/50 dark:bg-zinc-800/50">
-                            <div className="flex space-x-1 overflow-x-auto ios-scroll no-scrollbar">
-                                {tables.length > 1 ? tables.map((t, i) => (
-                                    <button key={i} onClick={() => setActiveTableIndex(i)} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${activeTableIndex === i ? 'bg-white dark:bg-zinc-700 text-[#007AFF] shadow-sm' : 'text-gray-500 hover:bg-black/5'}`}>{t.name}</button>
-                                )) : <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">{currentTable.name}</span>}
+                    <div className="flex flex-col h-full bg-white dark:bg-zinc-900">
+                        {/* Table Selector Tabs */}
+                        {tables.length > 1 && (
+                            <div className="flex items-center gap-2 p-3 border-b border-gray-100 dark:border-zinc-800/60 overflow-x-auto no-scrollbar">
+                                {tables.map((tbl, idx) => (
+                                    <button
+                                        key={tbl.id}
+                                        onClick={() => setActiveTableIndex(idx)}
+                                        className={`px-4 py-2 text-xs font-bold rounded-lg whitespace-nowrap transition-all ${activeTableIndex === idx ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-zinc-800'}`}
+                                    >
+                                        {tbl.name}
+                                    </button>
+                                ))}
                             </div>
-                            <button onClick={() => exportTableToCSV(currentTable)} className="p-1.5 text-gray-500 hover:text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"><ArrowDownTrayIcon className="w-4 h-4" /></button>
-                        </div>
-                        <div className="flex-grow overflow-auto ios-scroll">
-                            <table ref={tableRef} className="w-full text-left border-collapse min-w-[600px]">
-                                <thead className="sticky top-0 bg-white dark:bg-zinc-900 z-10 shadow-sm">
-                                    <tr className="border-b border-black/5 dark:border-white/5">{keys.map(k => <th key={k} className="p-4 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 bg-gray-50/80 dark:bg-zinc-800/80 backdrop-blur-sm">{k}</th>)}</tr>
+                        )}
+                        
+                        <div className="flex-1 overflow-auto ios-scroll relative">
+                            <table ref={tableRef} className="w-full border-collapse text-left text-sm relative">
+                                <thead className="sticky top-0 z-10 bg-gray-50/95 dark:bg-zinc-800/95 backdrop-blur-sm shadow-sm">
+                                    <tr>
+                                        <th className="p-3 w-10 text-center font-semibold text-gray-400 border-b border-gray-200 dark:border-zinc-700">#</th>
+                                        {keys.map(k => <th key={k} className="p-3 font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider text-[11px] border-b border-gray-200 dark:border-zinc-700 min-w-[150px]">{k}</th>)}
+                                    </tr>
                                 </thead>
-                                <tbody>
-                                    {filteredRows.map((row: any, i: number) => (
-                                        <tr key={i} className="border-b border-black/5 dark:border-white/5 hover:bg-gray-50/50 dark:hover:bg-white/5">
-                                            {keys.map(k => {
-                                                const valStr = String(row[k] ?? '');
-                                                const actionItem = getActionForValue(k, valStr);
-                                                return (
-                                                    <td key={k} className={`p-2 text-sm relative`}>
-                                                        <div className="flex items-center gap-1 group/cell">
-                                                            <div className="flex-1 min-w-0">
-                                                                <EditableInput value={valStr} onChange={(e) => handleGridChange(i, k, e.target.value)} onBlur={(e) => handleInputBlur(k, e.target.value, i)} onFocus={() => { setActiveField(k); setShowSplitView(true); }} label={k} isActive={activeField === k} isEdited={editedFields.has(`${currentTable.path || 'root'}-${i}-${k}`)} />
+                                <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60">
+                                    {filteredRows.map((row, i) => {
+                                        const originalIndex = currentTable.data.indexOf(row);
+                                        const rowIssues = gridValidationResult.issues.filter(issue => issue.rowIndex === originalIndex);
+                                        const hasRowError = rowIssues.some(issue => issue.severity === 'error');
+                                        const hasRowWarning = rowIssues.some(issue => issue.severity === 'warning');
+                                        
+                                        return (
+                                            <tr key={i} className={`group hover:bg-gray-50/80 dark:hover:bg-white/[0.02] transition-colors ${hasRowError ? 'bg-red-50/30 dark:bg-red-900/10' : (hasRowWarning ? 'bg-orange-50/30 dark:bg-orange-900/10' : '')}`}>
+                                                <td className="p-3 text-center text-xs font-mono text-gray-400 border-r border-dashed border-gray-100 dark:border-zinc-800/60 select-none">
+                                                    {originalIndex + 1}
+                                                    {(hasRowError || hasRowWarning) && (
+                                                        <Tooltip text={rowIssues.map(i => i.message).join('\n')} position="right">
+                                                            <div className="mt-1 flex justify-center">
+                                                                <ExclamationTriangleIcon className={`w-3 h-3 ${hasRowError ? 'text-red-500' : 'text-orange-500'}`} />
                                                             </div>
-                                                            {actionItem && (
-                                                                <Tooltip text={actionItem.label} position="top">
-                                                                    <button onClick={actionItem.action} className="p-1 text-gray-400 hover:text-blue-500 rounded-md opacity-0 group-hover/cell:opacity-100 focus:opacity-100 flex-shrink-0 transition-opacity">
-                                                                        <actionItem.icon className="w-3.5 h-3.5" />
-                                                                    </button>
-                                                                </Tooltip>
-                                                            )}
-                                                            <Tooltip text="Explain" position="top">
-                                                                <button onClick={() => triggerExplanation(k, valStr)} className="p-1 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md opacity-0 group-hover/cell:opacity-100 focus:opacity-100 flex-shrink-0 transition-all"><LightBulbIcon className="w-3.5 h-3.5" /></button>
-                                                            </Tooltip>
-                                                        </div>
-                                                    </td>
-                                                );
-                                            })}
-                                        </tr>
-                                    ))}
+                                                        </Tooltip>
+                                                    )}
+                                                </td>
+                                                {keys.map(k => {
+                                                    const cellData = row[k];
+                                                    const cellValue = (cellData && typeof cellData === 'object' && 'value' in cellData) ? cellData.value : cellData;
+                                                    const cellScore = (cellData && typeof cellData === 'object' && 'confidence' in cellData) ? cellData.confidence : undefined;
+                                                    const confidenceColor = getConfidenceColor(cellScore);
+
+                                                    const cellKey = `${currentTable.path || 'root'}-${originalIndex}-${k}`;
+                                                    const isEdited = editedFields.has(cellKey);
+                                                    
+                                                    const actionItem = getActionForValue(k, String(cellValue));
+                                                    const isUnreadable = String(cellValue) === '[Unreadable]';
+
+                                                    let gridInputClass = `px-2 ${confidenceColor} ${actionItem ? 'pr-7' : ''}`;
+                                                    if (isUnreadable) {
+                                                        gridInputClass = `px-2 pr-7 bg-red-100/80 dark:bg-red-900/40 text-red-600 dark:text-red-300 font-bold text-xs border border-red-200 dark:border-red-800/50 rounded italic`;
+                                                    }
+
+                                                    return (
+                                                        <td key={k} className="p-2 border-r border-dashed border-gray-100 dark:border-zinc-800/60 last:border-0 relative group/cell">
+                                                            <div className="relative flex items-center w-full h-full">
+                                                                <EditableInput
+                                                                    value={String(cellValue ?? '')}
+                                                                    onChange={(e) => handleGridChange(originalIndex, k, e.target.value)}
+                                                                    onBlur={(e) => handleInputBlur(k, e.target.value, originalIndex)}
+                                                                    label={`${k} row ${originalIndex + 1}`}
+                                                                    isEdited={isEdited}
+                                                                    onFocus={() => setShowSplitView(true)}
+                                                                    className={gridInputClass}
+                                                                />
+                                                                
+                                                                {/* Floating Action Bar for Cell */}
+                                                                <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/cell:opacity-100 transition-opacity z-10 flex gap-1 bg-white/90 dark:bg-zinc-800/90 backdrop-blur-sm rounded-md shadow-sm border border-black/5 dark:border-white/5 p-0.5">
+                                                                    {actionItem && !isUnreadable && (
+                                                                        <Tooltip text={actionItem.label} position="top">
+                                                                            <button 
+                                                                                onClick={actionItem.action}
+                                                                                className="p-1 text-gray-400 hover:text-[#007AFF] rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all hover:scale-110"
+                                                                            >
+                                                                                <actionItem.icon className="w-3 h-3" />
+                                                                            </button>
+                                                                        </Tooltip>
+                                                                    )}
+                                                                    
+                                                                    {/* Explain Button in Grid */}
+                                                                    {!isUnreadable && (
+                                                                        <Tooltip text="Explain extraction logic" position="top">
+                                                                            <button 
+                                                                                onClick={() => triggerExplanation(k, String(cellValue))}
+                                                                                className="p-1 text-gray-400 hover:text-amber-500 rounded hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all hover:scale-110"
+                                                                            >
+                                                                                <LightBulbIcon className="w-3 h-3" />
+                                                                            </button>
+                                                                        </Tooltip>
+                                                                    )}
+                                                                </div>
+
+                                                                {isUnreadable && (
+                                                                    <div className="absolute right-1 top-1/2 -translate-y-1/2 z-10 pointer-events-none">
+                                                                        <XMarkIcon className="w-3 h-3 text-red-500 opacity-60" />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
+                        </div>
+                        <div className="p-3 border-t border-gray-100 dark:border-zinc-800 flex justify-between items-center bg-white dark:bg-zinc-900 text-xs">
+                            <span className="text-gray-500">{filteredRows.length} rows visible</span>
+                            <button onClick={() => exportTableToCSV(currentTable)} className="font-bold text-[#007AFF] hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5">
+                                <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                                Download CSV
+                            </button>
                         </div>
                     </div>
                 );
@@ -484,87 +714,155 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
     };
 
     return (
-        <div className="flex flex-col h-full w-full">
-            {notification && <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
-            <ExplanationModal isOpen={isExplanationModalOpen} onClose={() => setIsExplanationModalOpen(false)} target={explanationTarget} explanation={explanationContent} isLoading={isExplanationLoading} />
-            <SaveTemplateModal isOpen={isTemplateModalOpen} onClose={() => setIsTemplateModalOpen(false)} onSave={() => {}} />
-
-            {/* Pane Header Group */}
-            <div className="flex-shrink-0 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl z-10 transition-colors duration-300 border-b border-black/5 dark:border-white/5">
-                <div className="flex justify-between items-center p-4 pb-2">
-                    <div>
-                        <h2 className="text-xl font-extrabold tracking-tight text-[#1d1d1f] dark:text-white">Results</h2>
-                        <p className="text-xs font-bold text-[#5856D6] dark:text-[#AF52DE] uppercase tracking-widest">{editedData.documentType}</p>
+        <>
+            <div className="flex flex-col h-full bg-white dark:bg-zinc-900 relative">
+                {/* --- Toolbar --- */}
+                <div className="h-16 px-6 flex items-center justify-between border-b border-gray-100 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md z-20 flex-shrink-0">
+                    {/* View Switcher */}
+                    <div className="flex bg-gray-100/80 dark:bg-zinc-800/80 p-1 rounded-xl">
+                        {outputFormats.map(fmt => (
+                            <Tooltip key={fmt.id} text={fmt.tooltip}>
+                                <button
+                                    onClick={() => setActiveFormat(fmt.id)}
+                                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${
+                                        activeFormat === fmt.id
+                                            ? 'bg-white dark:bg-zinc-700 text-black dark:text-white shadow-sm'
+                                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                                    }`}
+                                >
+                                    {fmt.label}
+                                </button>
+                            </Tooltip>
+                        ))}
                     </div>
+
+                    {/* Search & Actions */}
                     <div className="flex items-center gap-3">
-                         {isSearchable && (
-                            <>
-                                {validationResult.issues.length > 0 && activeFormat === 'key_value' && (
-                                    <button onClick={() => setShowOnlyIssues(!showOnlyIssues)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showOnlyIssues ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800' : 'bg-black/5 dark:bg-white/5 text-gray-500 dark:text-gray-400 hover:bg-black/10 border-transparent'}`}>
-                                        <ShieldCheckIcon className={`w-3.5 h-3.5 ${showOnlyIssues ? 'text-red-500' : ''}`} />
-                                        <span>{showOnlyIssues ? 'Showing Issues' : `${validationResult.issues.length} Issues`}</span>
+                        {isSearchable && (
+                            <div className="relative group">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <MagnifyingGlassIcon className="h-4 w-4 text-gray-400 group-focus-within:text-[#007AFF] transition-colors" />
+                                </div>
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search data..."
+                                    className="pl-9 pr-8 py-2 w-48 bg-gray-50 dark:bg-zinc-800 border border-transparent focus:bg-white dark:focus:bg-black focus:border-[#007AFF]/30 focus:ring-4 focus:ring-[#007AFF]/10 rounded-xl text-xs font-medium transition-all outline-none"
+                                />
+                                {searchQuery && (
+                                    <button onClick={() => setSearchQuery('')} className="absolute inset-y-0 right-0 pr-2 flex items-center text-gray-400 hover:text-gray-600">
+                                        <XMarkIcon className="h-3.5 w-3.5" />
                                     </button>
                                 )}
-                                <div className="relative group/search">
-                                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within/search:text-blue-500 transition-colors" />
-                                    <input type="text" placeholder="Search fields..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 pr-8 py-1.5 text-sm bg-gray-100 dark:bg-zinc-800 border-transparent focus:bg-white dark:focus:bg-black border focus:border-blue-500 rounded-lg outline-none transition-all w-48 focus:w-64 text-gray-800 dark:text-gray-200 placeholder-gray-500" />
-                                    {searchQuery && (<button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/10"><XMarkIcon className="w-3.5 h-3.5" /></button>)}
-                                </div>
-                            </>
+                            </div>
                         )}
-                        {file.file.type.startsWith('image/') && (
-                             <Tooltip text={showSplitView ? "Close Split View" : "Review with Split View"}>
-                                <button onClick={() => setShowSplitView(p => !p)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${showSplitView ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' : 'bg-black/5 dark:bg-white/5 text-gray-500 dark:text-gray-400 hover:bg-black/10'}`}>
-                                    <ViewColumnsIcon className="w-4 h-4" />
-                                    <span className="hidden sm:inline">Split View</span>
+                        
+                        {hasIssues && (
+                            <Tooltip text="Filter to only show fields with issues">
+                                <button
+                                    onClick={() => setShowOnlyIssues(!showOnlyIssues)}
+                                    className={`p-2 rounded-xl transition-all border ${showOnlyIssues ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white border-gray-200 text-gray-400 hover:border-red-300 hover:text-red-500'}`}
+                                >
+                                    <ExclamationTriangleIcon className="w-4 h-4" />
                                 </button>
                             </Tooltip>
                         )}
-                    </div>
-                </div>
-                {/* Segmented Control Tabs */}
-                <div className="px-4 pb-4">
-                    <div className="flex p-1 bg-gray-100/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-xl border border-black/5 dark:border-white/5">
-                        {outputFormats.map(f => (
-                             <button key={f.id} onClick={() => setActiveFormat(f.id)} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-300 ${activeFormat === f.id ? 'bg-white dark:bg-zinc-700 text-[#007AFF] dark:text-[#0A84FF] shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}>
-                                {f.label}
+
+                        <div className="w-px h-6 bg-gray-200 dark:bg-zinc-700 mx-1"></div>
+
+                        <Tooltip text="Toggle Split View">
+                            <button
+                                onClick={() => setShowSplitView(!showSplitView)}
+                                className={`p-2 rounded-xl transition-all ${showSplitView ? 'bg-[#007AFF] text-white shadow-lg shadow-blue-500/30' : 'bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-zinc-700'}`}
+                            >
+                                <ViewColumnsIcon className="w-4 h-4" />
                             </button>
-                        ))}
+                        </Tooltip>
                     </div>
                 </div>
-            </div>
 
-            <div className="flex-grow flex overflow-hidden">
-                <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${showSplitView ? 'w-1/2 border-r border-black/5 dark:border-white/5' : 'w-full'}`}>
-                    <div ref={resultsContentRef} className="flex-grow overflow-y-auto ios-scroll p-6 space-y-8 bg-transparent">
-                        {settings.showSummary && <div className="animate-summary"><AISummary summary={summary} loading={isSummaryLoading} onRegenerate={handleRegenerateSummary} onExplain={handleExplainSummary} /></div>}
-                        
-                        <div className="border border-black/5 dark:border-white/5 rounded-2xl overflow-hidden min-h-[400px] bg-white/40 dark:bg-zinc-800/40 backdrop-blur-sm">
-                           <div key={activeFormat} className="h-full w-full animate-fade-in">
-                                {renderData(activeFormat, editedData)}
-                           </div>
+                {/* --- Main Content Area --- */}
+                <div className="flex-1 overflow-hidden relative flex">
+                    {/* Data Panel */}
+                    <div ref={resultsContentRef} className="flex-1 h-full min-w-0 flex flex-col bg-white dark:bg-zinc-900">
+                        {settings.showSummary && activeFormat === 'text' && (
+                            <div className="px-8 pt-6 pb-2">
+                                <AISummary summary={summary} loading={isSummaryLoading} onRegenerate={handleRegenerateSummary} onExplain={handleExplainSummary} />
+                            </div>
+                        )}
+                        {renderData(activeFormat, editedData)}
+                    </div>
+
+                    {/* Split View Panel (Document Highlighter) */}
+                    <div className={`transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] border-l border-gray-200 dark:border-zinc-800 bg-gray-50/50 dark:bg-black/20 backdrop-blur-xl absolute top-0 bottom-0 right-0 z-30 shadow-2xl ${showSplitView ? 'w-[45%] translate-x-0' : 'w-[45%] translate-x-full pointer-events-none opacity-0'}`}>
+                        <div className="h-full flex flex-col">
+                            <div className="h-12 flex items-center justify-between px-4 border-b border-gray-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md">
+                                <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Source Document</span>
+                                <button onClick={() => setShowSplitView(false)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-lg text-gray-400 transition-colors">
+                                    <XMarkIcon className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div className="flex-1 relative overflow-hidden">
+                                {file.file.type.startsWith('image/') ? (
+                                    <DocumentHighlighter 
+                                        file={file} 
+                                        highlights={initialData.highlights || []} 
+                                        hoveredField={activeField} 
+                                        activeField={activeField} 
+                                        onHoverField={setActiveField} 
+                                        showHighlights={true} 
+                                    />
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-gray-400 flex-col gap-2">
+                                        <PhotoIcon className="w-12 h-12 opacity-20" />
+                                        <p className="text-xs">Preview available for images only</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-
-                        <div className="mt-8 pt-4 pb-2 border-t border-dashed border-gray-200 dark:border-zinc-700 flex justify-end opacity-60 hover:opacity-100 transition-opacity select-none">
-                            <span className="text-[10px] font-mono text-gray-400 dark:text-zinc-500 uppercase tracking-widest">
-                                {WATERMARK_TEXT}
+                    </div>
+                </div>
+                
+                {/* --- Bottom Action Bar --- */}
+                <div className="h-14 border-t border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center justify-between px-6 flex-shrink-0 z-20">
+                    <div className="flex items-center gap-4 text-xs font-medium text-gray-500">
+                        {activeFormat === 'grid' ? (
+                            <span>{tables.length} tables found</span>
+                        ) : (
+                            <span>{Object.keys(flattenObject(editedData)).length} fields extracted</span>
+                        )}
+                        {issueCount > 0 && (
+                            <span className="flex items-center gap-1.5 text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
+                                <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+                                {issueCount} Issues
                             </span>
-                        </div>
-                        <div className="h-4" /> {/* Reduced bottom padding as footer is removed */}
+                        )}
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                        <button onClick={() => setIsTemplateModalOpen(true)} className="text-xs font-bold text-gray-600 hover:text-[#007AFF] transition-colors">
+                            Save as Template
+                        </button>
+                        <div className="h-4 w-px bg-gray-300 dark:bg-zinc-700"></div>
+                        <button onClick={() => onReprocess(editedData)} className="text-xs font-bold text-[#007AFF] hover:bg-[#007AFF]/10 px-3 py-1.5 rounded-lg transition-colors">
+                            Re-Run Extraction
+                        </button>
                     </div>
                 </div>
-                {showSplitView && (
-                    <div className="w-1/2 bg-gray-50/50 dark:bg-black/20 flex flex-col overflow-hidden animate-fade-in backdrop-blur-sm">
-                        <div className="flex items-center justify-between p-3 border-b border-black/5 dark:border-white/5 bg-white/50 dark:bg-zinc-800/50 backdrop-blur-md">
-                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Source Document</span>
-                            <span className="text-[10px] text-gray-400">Click a field on left to zoom</span>
-                        </div>
-                        <div className="flex-grow relative overflow-hidden">
-                            <DocumentHighlighter file={file} highlights={initialData.highlights || []} hoveredField={null} activeField={activeField} onHoverField={() => {}} showHighlights={true} />
-                        </div>
-                    </div>
-                )}
             </div>
-        </div>
+
+            <SaveTemplateModal isOpen={isTemplateModalOpen} onClose={() => setIsTemplateModalOpen(false)} onSave={(name) => { setNotification({ message: `Template "${name}" saved!`, type: 'success' }); setIsTemplateModalOpen(false); }} />
+            
+            <ExplanationModal 
+                isOpen={isExplanationModalOpen} 
+                onClose={() => setIsExplanationModalOpen(false)} 
+                target={explanationTarget} 
+                explanation={explanationContent} 
+                isLoading={isExplanationLoading} 
+            />
+
+            {notification && <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} action={notification.action} />}
+        </>
     );
 };

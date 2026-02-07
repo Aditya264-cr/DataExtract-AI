@@ -65,7 +65,7 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
     };
 
     return (
-        <div className="relative w-full h-full flex gap-4 p-4 z-10">
+        <div className="relative w-full h-full flex gap-4 p-4 z-10 box-border">
             {/* Left Pane: Sources */}
             <LeftSidebar
                 files={props.files}
@@ -79,7 +79,8 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
             />
 
             {/* Center Pane: Main Content */}
-            <main className="flex-1 min-w-0 h-full flex flex-col bg-white dark:bg-zinc-900 rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden transition-all duration-300">
+            {/* We apply the card styling here to the container of the CenterWorkspace */}
+            <main className="flex-1 min-w-0 h-full flex flex-col bg-white dark:bg-zinc-900 rounded-3xl border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden transition-all duration-300">
                 <CenterWorkspace
                     initialData={props.data} // Pass initial for reference if needed
                     editedData={editedData}  // Pass lifted state

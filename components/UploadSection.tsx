@@ -6,6 +6,7 @@ import { Template } from '../types';
 import { BookmarkSquareIcon } from './icons/BookmarkSquareIcon';
 import { PresetEditorModal } from './ui/PresetEditorModal';
 import { Notification } from './ui/Notification';
+import { SampleDocuments } from './home/SampleDocuments';
 
 interface UploadSectionProps {
     onFileChange: (files: File[]) => void;
@@ -68,6 +69,11 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
         if (e.target.files?.length) onFileChange(Array.from(e.target.files));
     };
 
+    const handleSampleSelect = (file: File, prompt: string) => {
+        setDescription(prompt);
+        onFileChange([file]);
+    };
+
     const handleSaveCurrentAsPreset = (preset: any) => {
         addPreset(preset);
         setNotification(`Saved preset: ${preset.name}`);
@@ -109,6 +115,9 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                 {/* Decorative sheen */}
                 <div className="absolute inset-0 rounded-[3.5rem] bg-gradient-to-tr from-white/0 via-white/40 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
             </div>
+            
+            {/* New Sample Documents Section */}
+            <SampleDocuments onSelectSample={handleSampleSelect} />
             
             {settings.presets?.length > 0 && (
                 <div className="w-full mt-14">

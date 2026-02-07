@@ -1,11 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import type { UploadedFile } from '../types';
+import type { UploadedFile, BatchResult } from '../types';
 import { CheckCircleIcon } from './icons/CheckCircleIcon';
+import { XCircleIcon } from './icons/XCircleIcon';
 
 interface ProcessingViewProps {
     files: UploadedFile[];
     currentIndex: number | null;
+    batchResults?: BatchResult[] | null;
 }
 
 const PROCESSING_STEPS = [
@@ -16,7 +18,7 @@ const PROCESSING_STEPS = [
     "Preparing review-ready output..."
 ];
 
-export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIndex }) => {
+export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIndex, batchResults }) => {
     const [stepIndex, setStepIndex] = useState(0);
     const [fade, setFade] = useState(true);
     const isBatch = files.length > 1;
@@ -136,12 +138,6 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
         };
     }, []);
 
-    const getFileStatus = (index: number) => {
-        if (currentIndex === null || index > currentIndex) return 'Queued';
-        if (index < currentIndex) return 'Done';
-        return 'Processing';
-    };
-
     return (
         <div className="relative flex flex-col items-center justify-center w-full h-[65vh] overflow-hidden">
             {/* --- Neural Constellation Background --- */}
@@ -190,22 +186,53 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
                     {/* --- Batch Progress (Subtle) --- */}
                     {isBatch && (
                         <div className="w-full mt-8 pt-6 border-t border-gray-100 dark:border-white/5 relative z-10">
-                            <div className="flex flex-col gap-2.5 max-h-32 overflow-y-auto ios-scroll pr-1">
+                            <div className="flex flex-col gap-2 max-h-40 overflow-y-auto ios-scroll pr-1">
                                 {files.map((file, index) => {
-                                    const status = getFileStatus(index);
-                                    const isCurrent = status === 'Processing';
-                                    const isDone = status === 'Done';
+                                    const isCurrent = currentIndex === index;
+                                    const isPast = currentIndex !== null && index < currentIndex;
                                     
+                                    // Identify status
+                                    let statusText = 'Pending';
+                                    let statusColor = 'text-gray-400 dark:text-gray-500';
+                                    let Icon = null;
+                                    
+                                    // Check past results
+                                    if (isPast) {
+                                        const result = batchResults?.find(r => r.file.id === file.id);
+                                        const isError = result?.status === 'error';
+                                        if (isError) {
+                                            statusText = 'Failed';
+                                            statusColor = 'text-red-500';
+                                            Icon = XCircleIcon;
+                                        } else {
+                                            statusText = 'Done';
+                                            statusColor = 'text-[#34C759]'; // Green
+                                            Icon = CheckCircleIcon;
+                                        }
+                                    } else if (isCurrent) {
+                                        statusText = 'Processing...';
+                                        statusColor = 'text-[#007AFF]';
+                                    }
+
                                     return (
                                         <div 
                                             key={file.id} 
-                                            className={`flex items-center gap-3 px-2 py-1.5 rounded-lg transition-all duration-500 ${isCurrent ? 'bg-blue-50/80 dark:bg-blue-500/10' : 'opacity-50 grayscale'}`}
+                                            className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-300 border ${isCurrent ? 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-500/20 shadow-sm' : 'bg-transparent border-transparent opacity-60'}`}
                                         >
-                                            <div className={`flex-shrink-0 w-1.5 h-1.5 rounded-full transition-colors duration-300 ${isCurrent ? 'bg-[#007AFF] animate-pulse' : (isDone ? 'bg-[#34C759]' : 'bg-gray-300 dark:bg-gray-600')}`}></div>
-                                            <span className={`text-[11px] font-semibold truncate flex-1 text-left ${isCurrent ? 'text-[#1d1d1f] dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>
-                                                {file.file.name}
-                                            </span>
-                                            {isDone && <CheckCircleIcon className="w-3.5 h-3.5 text-[#34C759]" />}
+                                            <div className="flex items-center gap-3 overflow-hidden min-w-0">
+                                                <div className={`flex-shrink-0 w-1.5 h-1.5 rounded-full transition-all duration-500 ${isCurrent ? 'bg-[#007AFF] animate-pulse scale-125' : (isPast ? (statusText === 'Failed' ? 'bg-red-500' : 'bg-[#34C759]') : 'bg-gray-300 dark:bg-gray-600')}`} />
+                                                <span className={`text-[11px] font-semibold truncate ${isCurrent ? 'text-[#1d1d1f] dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>
+                                                    {file.file.name}
+                                                </span>
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-1.5 pl-3 flex-shrink-0">
+                                                <span className={`text-[10px] font-bold uppercase tracking-wider ${statusColor}`}>
+                                                    {statusText}
+                                                </span>
+                                                {Icon && <Icon className={`w-3.5 h-3.5 ${statusColor}`} />}
+                                                {isCurrent && <div className="w-3 h-3 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />}
+                                            </div>
                                         </div>
                                     );
                                 })}
