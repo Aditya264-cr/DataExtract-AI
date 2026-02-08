@@ -28,6 +28,7 @@ import { useSeason } from './hooks/useSeason';
 import { XMarkIcon } from './components/icons/XMarkIcon';
 import { SparklesIcon } from './components/icons/SparklesIcon';
 import { ListBulletIcon } from './components/icons/ListBulletIcon'; 
+import { Tooltip } from './components/ui/Tooltip';
 
 // Increased threshold to ensure human verification for ambiguous docs
 const CLASSIFICATION_CONFIDENCE_THRESHOLD = 80;
@@ -98,6 +99,9 @@ function App() {
   // Home View Responsive Drawer State
   const [showMobileWorkflow, setShowMobileWorkflow] = useState(false);
   const [showMobileFeatures, setShowMobileFeatures] = useState(false);
+  
+  // Focus Mode State
+  const [isLeftPanelHovered, setIsLeftPanelHovered] = useState(false);
   
   // Seasonal Hook
   const { blobStyles } = useSeason();
@@ -470,8 +474,8 @@ function App() {
         );
       case 'files_selected':
         return (
-          <div className="relative w-full max-w-[1600px] mx-auto pt-4 lg:pt-8">
-             {/* Same responsive wrapper logic for files_selected state to ensure guidance is available */}
+          <div className="relative w-full max-w-[1600px] mx-auto pt-4 lg:pt-8 h-full flex flex-col">
+             {/* Mobile/Tablet Drawer Toggles */}
              <div className="xl:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 animate-slide-in pointer-events-none">
                 <button 
                     onClick={() => setShowMobileWorkflow(true)} 
@@ -479,41 +483,67 @@ function App() {
                 >
                     <ListBulletIcon className="w-4 h-4" /> Workflow
                 </button>
+                <button 
+                    onClick={() => setShowMobileFeatures(true)} 
+                    className="pointer-events-auto bg-white/90 dark:bg-zinc-800/90 backdrop-blur-md text-[#1d1d1f] dark:text-white border border-gray-200 dark:border-zinc-700 shadow-lg hover:shadow-xl px-5 py-2.5 rounded-full flex items-center gap-2 text-sm font-bold transition-all active:scale-95"
+                >
+                    <SparklesIcon className="w-4 h-4" /> Tools
+                </button>
             </div>
 
-            <div className="flex flex-col xl:flex-row items-start justify-center gap-8 w-full relative">
-                {/* Left Panel Wrapper */}
+            <div className="flex flex-col xl:flex-row items-start justify-center w-full relative flex-1 min-h-0">
+                
+                {/* Desktop: Focus Mode Left Sidebar (Collapsible) */}
+                {/* Mobile: Full Sidebar in Drawer */}
                 <div 
                     className={`
-                        fixed inset-y-0 left-0 z-50 w-80 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-r border-gray-200 dark:border-zinc-800 shadow-2xl transform transition-transform duration-300 ease-out
-                        ${showMobileWorkflow ? 'translate-x-0' : '-translate-x-full'}
-                        xl:translate-x-0 xl:relative xl:block xl:w-64 xl:bg-transparent xl:dark:bg-transparent xl:border-none xl:shadow-none xl:z-auto xl:sticky xl:top-24
+                        fixed inset-y-0 left-0 z-50 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-r border-gray-200 dark:border-zinc-800 shadow-2xl transform transition-all duration-300 ease-out
+                        ${showMobileWorkflow ? 'translate-x-0 w-80' : '-translate-x-full w-80'}
+                        xl:relative xl:translate-x-0 xl:border-none xl:shadow-none xl:z-20 xl:sticky xl:top-24 xl:h-[calc(100vh-8rem)]
+                        xl:bg-white/40 xl:dark:bg-zinc-900/40 xl:rounded-[2rem] xl:border-r-0 xl:backdrop-blur-md
+                        ${isLeftPanelHovered ? 'xl:w-80 xl:bg-white/80 xl:dark:bg-zinc-900/80 xl:shadow-2xl' : 'xl:w-20'}
                     `}
+                    onMouseEnter={() => setIsLeftPanelHovered(true)}
+                    onMouseLeave={() => setIsLeftPanelHovered(false)}
                 >
-                    <div className="h-full overflow-y-auto p-6 xl:p-0 xl:pt-2 ios-scroll">
+                    <div className="h-full overflow-y-auto p-6 xl:p-0 xl:pt-4 ios-scroll flex flex-col no-scrollbar">
                         <div className="xl:hidden flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-[#1d1d1f] dark:text-white">Workflow</h3>
                             <button onClick={() => setShowMobileWorkflow(false)} className="p-2 bg-gray-100 dark:bg-zinc-800 rounded-full">
                                 <XMarkIcon className="w-5 h-5 text-gray-500" />
                             </button>
                         </div>
-                        <GuidanceRail 
-                            fileCount={files.length} 
-                            hasPreset={!!activePresetId} 
-                            hasDescription={description.length > 0} 
-                            processingState={processingState}
-                        />
+                        
+                        {/* Only show full Rail on mobile or when hovered on desktop. Otherwise collapsed. */}
+                        <div className="xl:hidden">
+                             <GuidanceRail 
+                                fileCount={files.length} 
+                                hasPreset={!!activePresetId} 
+                                hasDescription={description.length > 0} 
+                                processingState={processingState}
+                            />
+                        </div>
+                        <div className="hidden xl:block px-2">
+                             <GuidanceRail 
+                                fileCount={files.length} 
+                                hasPreset={!!activePresetId} 
+                                hasDescription={description.length > 0} 
+                                processingState={processingState}
+                                collapsed={!isLeftPanelHovered}
+                            />
+                        </div>
                     </div>
                 </div>
                 
-                {/* Backdrop */}
+                {/* Backdrop for Mobile Left */}
                 {showMobileWorkflow && (
                     <div className="xl:hidden fixed inset-0 bg-black/20 z-40 backdrop-blur-sm" onClick={() => setShowMobileWorkflow(false)} />
                 )}
 
-                <div className="flex-1 flex flex-col items-center px-4 w-full relative z-10 max-w-4xl animate-slide-in min-w-0">
-                    {/* Ambient Background - matching new static gradient style */}
-                    <div className="absolute top-[-100px] left-1/2 -translate-x-1/2 w-[120%] max-w-[1000px] h-[800px] -z-10 pointer-events-none select-none opacity-60 dark:opacity-40">
+                {/* Main Focus Area */}
+                <div className="flex-1 flex flex-col items-center px-4 w-full relative z-10 max-w-4xl animate-slide-in min-w-0 xl:px-12">
+                    {/* Ambient Background - Subtler in Focus Mode */}
+                    <div className="absolute top-[-100px] left-1/2 -translate-x-1/2 w-[120%] max-w-[1000px] h-[800px] -z-10 pointer-events-none select-none opacity-40 dark:opacity-20 transition-opacity duration-700">
                         <div className="absolute top-[10%] left-[20%] w-[50%] h-[50%] rounded-full bg-[#7dd3fc]/20 dark:bg-[#0ea5e9]/10 blur-[120px]" />
                         <div className="absolute top-[15%] right-[20%] w-[45%] h-[45%] rounded-full bg-[#c4b5fd]/20 dark:bg-[#8b5cf6]/10 blur-[120px]" />
                         <div className="absolute top-[35%] left-[30%] w-[40%] h-[40%] rounded-full bg-[#67e8f9]/15 dark:bg-[#06b6d4]/5 blur-[100px]" />
@@ -551,10 +581,41 @@ function App() {
                     </div>
                 </div>
                 
-                {/* Right Placeholder - Hidden on mobile/files_selected, visible on desktop */}
-                <div className="hidden xl:flex flex-col w-72 space-y-6 sticky top-24 pr-4 opacity-40 grayscale pointer-events-none">
-                     <AssistantPreview />
+                {/* Desktop: Right Floating Tool Trigger (Hidden in standard flow, shown here) */}
+                {/* Replaces the full right sidebar */}
+                <div className="hidden xl:flex w-20 justify-center sticky top-24 z-20">
+                     <Tooltip text="AI Capabilities" position="left">
+                        <button 
+                            onClick={() => setShowMobileFeatures(true)}
+                            className="w-12 h-12 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md rounded-2xl shadow-lg border border-white/50 dark:border-white/10 flex items-center justify-center text-[#007AFF] hover:scale-110 hover:bg-white dark:hover:bg-zinc-700 transition-all active:scale-95"
+                        >
+                            <SparklesIcon className="w-6 h-6" />
+                        </button>
+                     </Tooltip>
                 </div>
+
+                {/* Shared Right Panel Drawer (Desktop & Mobile) */}
+                <div 
+                    className={`
+                        fixed inset-y-0 right-0 z-50 w-80 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-l border-gray-200 dark:border-zinc-800 shadow-2xl transform transition-transform duration-300 ease-out
+                        ${showMobileFeatures ? 'translate-x-0' : 'translate-x-full'}
+                    `}
+                >
+                    <div className="h-full overflow-y-auto p-6 ios-scroll flex flex-col">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-[#1d1d1f] dark:text-white">Capabilities</h3>
+                            <button onClick={() => setShowMobileFeatures(false)} className="p-2 bg-gray-100 dark:bg-zinc-800 rounded-full hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors">
+                                <XMarkIcon className="w-5 h-5 text-gray-500" />
+                            </button>
+                        </div>
+                        <AssistantPreview />
+                    </div>
+                </div>
+
+                {/* Backdrop for Right Drawer */}
+                {showMobileFeatures && (
+                    <div className="fixed inset-0 bg-black/20 z-40 backdrop-blur-sm transition-opacity" onClick={() => setShowMobileFeatures(false)} />
+                )}
             </div>
           </div>
         );
@@ -592,7 +653,7 @@ function App() {
       default:
         return null;
     }
-  }, [processingState, files, extractedData, error, selectedTemplate, description, activePresetId, activePresetName, stats, history, classificationResult, batchResults, currentlyProcessingFileIndex, handleFileChange, handleRemoveFile, handleNewUpload, handleReprocess, handleSelectHistoryItem, clearHistory, settings.presets, settings.documentLanguage, isLeftOpen, isRightOpen, toggleLeftSidebar, toggleRightSidebar, blobStyles, showMobileWorkflow, showMobileFeatures]);
+  }, [processingState, files, extractedData, error, selectedTemplate, description, activePresetId, activePresetName, stats, history, classificationResult, batchResults, currentlyProcessingFileIndex, handleFileChange, handleRemoveFile, handleNewUpload, handleReprocess, handleSelectHistoryItem, clearHistory, settings.presets, settings.documentLanguage, isLeftOpen, isRightOpen, toggleLeftSidebar, toggleRightSidebar, blobStyles, showMobileWorkflow, showMobileFeatures, isLeftPanelHovered]);
   
   const isResultsView = processingState === 'results';
 

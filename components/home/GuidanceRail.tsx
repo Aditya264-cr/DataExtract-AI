@@ -13,6 +13,7 @@ interface GuidanceRailProps {
     hasDescription?: boolean;
     processingState?: ProcessingState;
     lastUsedPreset?: string | null;
+    collapsed?: boolean; // New prop for Focus Mode
 }
 
 const TIPS = [
@@ -26,7 +27,8 @@ export const GuidanceRail: React.FC<GuidanceRailProps> = ({
     hasPreset = false, 
     hasDescription = false, 
     processingState = 'idle',
-    lastUsedPreset 
+    lastUsedPreset,
+    collapsed = false
 }) => {
     const [tipIndex, setTipIndex] = useState(0);
     const [fade, setFade] = useState(true);
@@ -81,21 +83,25 @@ export const GuidanceRail: React.FC<GuidanceRailProps> = ({
             processing: "bg-blue-100 dark:bg-blue-900/20 text-blue-600 border-blue-200 animate-pulse"
         };
 
-        const activeIndicator = state === 'active' && (
+        const activeIndicator = state === 'active' && !collapsed && (
             <div className="absolute -left-3 top-1.5 bottom-1.5 w-0.5 bg-[#007AFF] rounded-full shadow-[0_0_8px_#007AFF] animate-fade-in" />
         );
 
         return (
-            <div className={`relative flex items-start gap-3 transition-all duration-500 ease-out group ${styles[state]}`} style={{ transitionDelay: delay }}>
+            <div className={`relative flex items-center ${collapsed ? 'justify-center' : 'items-start gap-3'} transition-all duration-500 ease-out group ${styles[state]} py-1`} style={{ transitionDelay: delay }}>
                 {activeIndicator}
-                <div className={`flex-shrink-0 w-8 h-8 rounded-full border flex items-center justify-center transition-all duration-500 ${iconStyles[state]}`}>
+                <div className={`flex-shrink-0 w-8 h-8 rounded-full border flex items-center justify-center transition-all duration-500 ${iconStyles[state]} ${collapsed ? 'w-10 h-10' : ''}`}>
                     <Icon className="w-4 h-4" />
                 </div>
-                <div className="pt-0.5">
+                
+                {/* Text Container - Collapses width when in Focus Mode */}
+                <div 
+                    className={`pt-0.5 whitespace-nowrap overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${collapsed ? 'w-0 opacity-0' : 'w-full opacity-100'}`}
+                >
                     <p className={`text-[13px] font-bold transition-colors duration-300 ${state === 'active' ? 'text-[#1d1d1f] dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>
                         {title}
                     </p>
-                    <p className="text-[11px] text-[#86868b] dark:text-gray-500 leading-snug mt-0.5 font-medium max-w-[180px]">
+                    <p className="text-[11px] text-[#86868b] dark:text-gray-500 leading-snug mt-0.5 font-medium">
                         {description}
                     </p>
                 </div>
@@ -104,22 +110,24 @@ export const GuidanceRail: React.FC<GuidanceRailProps> = ({
     };
 
     return (
-        <div className="flex flex-col w-full space-y-10 animate-fade-in pl-2">
+        <div className={`flex flex-col w-full space-y-10 animate-fade-in ${collapsed ? 'px-0 items-center' : 'pl-2'}`}>
             
             {/* Live Workflow Guide */}
-            <div>
-                <h4 className="text-[10px] font-bold text-[#86868b] dark:text-zinc-500 uppercase tracking-[0.2em] mb-6 pl-2 opacity-80">
+            <div className="w-full">
+                <h4 className={`text-[10px] font-bold text-[#86868b] dark:text-zinc-500 uppercase tracking-[0.2em] mb-6 opacity-80 transition-all duration-500 whitespace-nowrap ${collapsed ? 'opacity-0 h-0 overflow-hidden' : 'pl-2 h-auto'}`}>
                     Live Workflow
                 </h4>
                 
-                <div className="space-y-7 relative">
-                    {/* Connecting Line */}
-                    <div className="absolute left-[15px] top-4 bottom-4 w-px bg-gradient-to-b from-gray-200 via-gray-200 to-transparent dark:from-white/5 dark:via-white/5 rounded-full -z-10" />
+                <div className={`space-y-7 relative ${collapsed ? 'flex flex-col items-center space-y-6 mt-4' : ''}`}>
+                    {/* Connecting Line (Hidden in collapsed mode to look cleaner) */}
+                    {!collapsed && (
+                        <div className="absolute left-[15px] top-4 bottom-4 w-px bg-gradient-to-b from-gray-200 via-gray-200 to-transparent dark:from-white/5 dark:via-white/5 rounded-full -z-10" />
+                    )}
 
                     {renderStep(
                         ArrowUpTrayIcon, 
                         "Upload", 
-                        "Drop a document — Gemini prepares it instantly.", 
+                        "Drop files", 
                         uploadState,
                         '0ms'
                     )}
@@ -127,7 +135,7 @@ export const GuidanceRail: React.FC<GuidanceRailProps> = ({
                     {renderStep(
                         SparklesIcon, 
                         "Preset", 
-                        "AI selects the best preset automatically.", 
+                        "Select rules", 
                         presetState,
                         '100ms'
                     )}
@@ -135,7 +143,7 @@ export const GuidanceRail: React.FC<GuidanceRailProps> = ({
                     {renderStep(
                         DocumentTextIcon, 
                         "Describe", 
-                        "Tell AI what matters most — extraction adapts.", 
+                        "Refine context", 
                         describeState,
                         '200ms'
                     )}
@@ -143,15 +151,15 @@ export const GuidanceRail: React.FC<GuidanceRailProps> = ({
                     {renderStep(
                         ShieldCheckIcon, 
                         "Review", 
-                        "Verify results, ask questions, or export confidently.", 
+                        "Validate data", 
                         reviewState,
                         '300ms'
                     )}
                 </div>
             </div>
 
-            {/* Smart Hint / Pro Tip */}
-            <div className="glass-card p-5 rounded-[1.5rem] border border-white/40 dark:border-white/5 bg-white/30 dark:bg-zinc-800/30 backdrop-blur-md">
+            {/* Smart Hint / Pro Tip (Hidden when collapsed) */}
+            <div className={`glass-card p-5 rounded-[1.5rem] border border-white/40 dark:border-white/5 bg-white/30 dark:bg-zinc-800/30 backdrop-blur-md transition-all duration-500 overflow-hidden ${collapsed ? 'max-h-0 opacity-0 p-0 border-0' : 'max-h-40 opacity-100'}`}>
                 <div className="flex items-center gap-2 mb-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#007AFF] animate-pulse" />
                     <h4 className="text-[10px] font-bold text-[#86868b] dark:text-zinc-500 uppercase tracking-widest font-body">

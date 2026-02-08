@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo, useContext } from 'react';
+import React, { useState, useMemo, useContext, useEffect } from 'react';
 import { ChatPanel } from '../ChatPanel';
-import type { ExtractedData } from '../../types';
+import type { ExtractedData, AISummaryData } from '../../types';
 import { PanelRightCloseIcon } from '../icons/PanelRightCloseIcon';
 import { PanelRightOpenIcon } from '../icons/PanelRightOpenIcon';
 import { SparklesIcon } from '../icons/SparklesIcon';
@@ -35,8 +35,22 @@ type StudioTool = 'menu' | 'chat' | 'summary' | 'validate' | 'export' | 'sketchn
 export const RightSidebar: React.FC<RightSidebarProps> = ({ originalData, editedData, isOpen, onToggle }) => {
     const { settings } = useContext(SettingsContext);
     const [activeTool, setActiveTool] = useState<StudioTool>('menu');
-    const [summaryData, setSummaryData] = useState<any>(null);
+    
+    // Shared Semantic Context (Base Layer)
+    // Derived immediately from extraction results to ensure all tools have a baseline truth
+    const semanticContext = useMemo(() => {
+        return editedData.rawTextSummary || `A document of type ${editedData.documentType} containing structured data.`;
+    }, [editedData]);
+
+    // Smart Summary State
+    // Initialize with the semantic context so it's never empty, but allow refinement
+    const [summaryData, setSummaryData] = useState<AISummaryData | null>(() => ({
+        summary: semanticContext,
+        confidenceScore: editedData.confidenceScore
+    }));
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+
+    // Sketch Notes State
     const [sketchnotes, setSketchnotes] = useState<string | null>(null);
     const [isSketchnotesLoading, setIsSketchnotesLoading] = useState(false);
     
@@ -48,15 +62,34 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ originalData, edited
 
     const validationResult = useMemo(() => validateDocumentLogic(flattenObject(editedData)), [editedData]);
 
+    // Independent Visual Studio Auto-fill
+    // Uses the shared semantic context immediately when the tool is accessed
+    useEffect(() => {
+        if (activeTool === 'visuals' && !imagePrompt && semanticContext) {
+            const visualContext = semanticContext.length > 400 
+                ? semanticContext.slice(0, 400) + "..." 
+                : semanticContext;
+            setImagePrompt(`A professional conceptual illustration representing: ${visualContext}`);
+        }
+    }, [activeTool, semanticContext]); // Deliberately exclude imagePrompt to prevent overwrite if user edits
+
+    // Reset local states when main document changes
+    useEffect(() => {
+        setSummaryData({
+            summary: editedData.rawTextSummary || "Document analysis ready.",
+            confidenceScore: editedData.confidenceScore
+        });
+        setSketchnotes(null);
+        setGeneratedImage(null);
+        setImagePrompt(''); // Clear prompt so it can be re-generated on next visit
+    }, [editedData.documentType, editedData.rawTextSummary]); // Depend on content identifiers
+
     const handleGenerateSummary = async () => {
         setIsSummaryLoading(true);
         try {
+            // "Refine or expand" on the shared context
             const summary = await generateSummaryFromData(editedData, true);
             setSummaryData(summary);
-            // Pre-fill image prompt if empty
-            if (!imagePrompt && summary?.summary) {
-                setImagePrompt(`A professional conceptual illustration of: ${summary.summary.slice(0, 200)}...`);
-            }
         } catch (e) {
             console.error(e);
         } finally {
@@ -277,7 +310,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ originalData, edited
                             <h4 className="font-bold text-blue-900 dark:text-blue-100 mb-2">Executive Summary</h4>
                             <p className="text-sm text-blue-800 dark:text-blue-200 opacity-80">Generate a concise natural language summary of the current data state.</p>
                             <button onClick={handleGenerateSummary} disabled={isSummaryLoading} className="mt-4 w-full py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-bold transition-all shadow-sm">
-                                {isSummaryLoading ? 'Generating...' : 'Generate New Summary'}
+                                {isSummaryLoading ? 'Generating...' : 'Refine Summary'}
                             </button>
                         </div>
                         {summaryData && <AISummary summary={summaryData} loading={isSummaryLoading} onRegenerate={handleGenerateSummary} onExplain={() => {}} />}
@@ -418,6 +451,29 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ originalData, edited
                                 </div>
                             </button>
                         ))}
+                    </div>
+                );
+            case 'sketchnotes':
+                return (
+                    <div className="flex flex-col h-full overflow-y-auto ios-scroll p-1">
+                        <div className="p-4 bg-pink-50/50 dark:bg-pink-900/10 rounded-2xl mb-4">
+                            <h4 className="font-bold text-pink-900 dark:text-pink-100 mb-2">Visual Sketchnotes</h4>
+                            <p className="text-sm text-pink-800 dark:text-pink-200 opacity-80">Generate a structured visual map of concepts.</p>
+                            <button onClick={handleGenerateSketchnotes} disabled={isSketchnotesLoading} className="mt-4 w-full py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-xl text-sm font-bold transition-all shadow-sm">
+                                {isSketchnotesLoading ? 'Generating...' : 'Create Sketchnotes'}
+                            </button>
+                        </div>
+                        {sketchnotes && (
+                            <div className="p-6 bg-white dark:bg-zinc-800 rounded-2xl border border-black/5 dark:border-white/5 shadow-sm">
+                                <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-gray-700 dark:text-gray-300">{sketchnotes}</pre>
+                            </div>
+                        )}
+                        {!sketchnotes && !isSketchnotesLoading && (
+                            <div className="text-center p-8 text-gray-400">
+                                <SwatchIcon className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                                <p className="text-sm">No notes generated yet.</p>
+                            </div>
+                        )}
                     </div>
                 );
             default: return null;
