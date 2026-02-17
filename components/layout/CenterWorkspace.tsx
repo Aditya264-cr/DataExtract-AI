@@ -673,7 +673,7 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                                  return (
                                     <div 
                                         key={key} 
-                                        className={`group relative flex items-start gap-4 px-6 py-4 border-b border-gray-100 dark:border-zinc-800/60 last:border-0 hover:bg-gray-50/50 dark:hover:bg-white/[0.02] transition-colors ${activeField === key ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}
+                                        className={`group relative flex items-start gap-4 px-6 py-4 border-b border-gray-100 dark:border-zinc-800/60 last:border-0 hover:bg-gray-50/50 dark:hover:bg-white/[0.02] transition-colors ${activeField === key ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''} ${isLogicIssue ? (logicIssue?.severity === 'error' ? 'bg-red-50/30 dark:bg-red-900/5' : 'bg-orange-50/30 dark:bg-orange-900/5') : ''}`}
                                     >
                                         <div className="w-1/3 min-w-[180px] max-w-[300px] flex-shrink-0 pt-1.5">
                                             <div className="flex items-center gap-2">
@@ -804,9 +804,17 @@ export const CenterWorkspace: React.FC<CenterWorkspaceProps> = ({ initialData, e
                                                     const actionItem = getActionForValue(k, String(cellValue));
                                                     const isUnreadable = String(cellValue) === '[Unreadable]';
 
+                                                    // Determine if specific cell is part of the issue
+                                                    const isCellIssue = rowIssues.some(issue => issue.involvedKeys.includes(k));
+                                                    const cellIssueSeverity = isCellIssue ? (rowIssues.find(i => i.involvedKeys.includes(k))?.severity || 'warning') : null;
+
                                                     let gridInputClass = `px-2 ${confidenceColor} ${actionItem ? 'pr-7' : ''}`;
                                                     if (isUnreadable) {
                                                         gridInputClass = `px-2 pr-7 bg-red-100/80 dark:bg-red-900/40 text-red-600 dark:text-red-300 font-bold text-xs border border-red-200 dark:border-red-800/50 rounded italic`;
+                                                    } else if (cellIssueSeverity === 'error') {
+                                                        gridInputClass += ' bg-red-50/60 dark:bg-red-900/30 text-red-700 dark:text-red-300 ring-1 ring-inset ring-red-200 dark:ring-red-800/50 rounded-md';
+                                                    } else if (cellIssueSeverity === 'warning') {
+                                                        gridInputClass += ' bg-orange-50/60 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 ring-1 ring-inset ring-orange-200 dark:ring-orange-800/50 rounded-md';
                                                     }
 
                                                     return (
