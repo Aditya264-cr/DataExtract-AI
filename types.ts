@@ -5,7 +5,7 @@ export interface UploadedFile {
     preview: string; // URL for preview
 }
 
-export type ProcessingState = 'idle' | 'files_selected' | 'processing' | 'awaiting_classification' | 'results' | 'error' | 'batch_complete';
+export type ProcessingState = 'idle' | 'files_selected' | 'processing' | 'awaiting_classification' | 'reviewing_schema' | 'results' | 'error' | 'batch_complete';
 
 export interface Highlight {
     fieldName: string;
@@ -37,9 +37,20 @@ export interface ExtractedTable {
     rows: Record<string, ExtractedField>[];
 }
 
+export interface ForensicStep {
+    step: string;
+    details: string;
+    confidence: number;
+}
+
 export interface ExtractedData {
     documentType: string; // Mapped from meta.contentType
     confidenceScore: number; // Aggregate or meta confidence
+    
+    // Core Engine Telemetry (Segment 6.3)
+    taskId?: string;
+    agentSignature?: string;
+    riskScore?: number; // 0-100
     
     // New Schema Root
     meta: {
@@ -48,6 +59,8 @@ export interface ExtractedData {
         hasImages: boolean;
         hasTables: boolean;
         hasHandwriting: boolean;
+        wasSelfCorrected?: boolean;
+        qaIssues?: string[];
     };
     
     structuredData: {
@@ -60,6 +73,8 @@ export interface ExtractedData {
         objectsDetected: { objectName: string; description: string; confidence: number }[];
         extractedText: { text: string; confidence: number }[];
     } | null;
+
+    forensic_reasoning?: ForensicStep[];
 
     rawTextSummary: string;
 
@@ -100,4 +115,11 @@ export interface BatchResult {
     status: 'success' | 'error';
     data?: ExtractedData;
     error?: string;
+}
+
+export interface EntityVerification {
+    entityText: string;
+    status: 'verified' | 'unverified' | 'ambiguous';
+    sourceUrl?: string;
+    snippet?: string;
 }

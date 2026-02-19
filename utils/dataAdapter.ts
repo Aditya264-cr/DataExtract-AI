@@ -119,6 +119,7 @@ export const updateNestedState = (root: any, pathString: string, newValue: any):
             const item = section.content.find((i: any) => i.label === labelName);
             if (item) {
                 item.value = newValue;
+                item.confidence = 100; // Manual override implies explicit verification
                 return newRoot;
             }
         }
@@ -126,6 +127,7 @@ export const updateNestedState = (root: any, pathString: string, newValue: any):
         // Handle Title special case
         if (pathString === "Document Title" && data.title) {
             data.title.value = newValue;
+            data.title.confidence = 100;
             return newRoot;
         }
     }
@@ -151,8 +153,9 @@ export const updateTableData = (rootData: any, tablePath: string, rowIndex: numb
                 // Check if it's an object structure or direct value (handle legacy)
                 if (typeof row[columnKey] === 'object' && 'value' in row[columnKey]) {
                     row[columnKey].value = newValue;
+                    row[columnKey].confidence = 100; // Manual override
                 } else {
-                    row[columnKey] = newValue;
+                    row[columnKey] = { value: newValue, confidence: 100 };
                 }
             } else {
                 // If column doesn't exist on this row, create it

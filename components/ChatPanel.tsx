@@ -5,6 +5,7 @@ import type { ChatMessage, ExtractedData } from '../types';
 import { askDocumentChat } from '../services/geminiService';
 import { SparklesIcon } from './icons/SparklesIcon';
 import { GlobeAltIcon } from './icons/GlobeAltIcon';
+import { flattenObject } from '../utils/dataAdapter';
 
 interface ChatPanelProps {
     extractedData: ExtractedData;
@@ -65,17 +66,61 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ extractedData }) => {
     }, [extractedData]);
 
     const dynamicSuggestions = useMemo(() => {
-        const type = extractedData.documentType.toLowerCase();
+        const type = (extractedData.documentType || 'Document').toLowerCase();
+        const prompts: Set<string> = new Set();
+
+        // 1. Data Integrity & Structure Checks
+        const hasTables = extractedData.structuredData.tables && extractedData.structuredData.tables.length > 0;
+        const lowConfidence = extractedData.confidenceScore < 85;
+
+        if (lowConfidence) {
+            prompts.add("Why is the confidence score low?");
+            prompts.add("Identify fields that need human verification");
+        }
+
+        if (hasTables) {
+            const tableName = extractedData.structuredData.tables[0].tableName || "the data table";
+            prompts.add(`Summarize the rows in ${tableName}`);
+            prompts.add(`Calculate column totals for ${tableName}`);
+        }
+
+        // 2. Content-Aware Checks (Deep Scan of Keys)
+        const flattened = flattenObject(extractedData);
+        const keys = Object.keys(flattened).map(k => k.toLowerCase());
+        
+        if (keys.some(k => k.includes('total') || k.includes('amount') || k.includes('price'))) {
+            prompts.add("Verify the mathematical accuracy of the totals");
+        }
+        if (keys.some(k => k.includes('date'))) {
+            prompts.add("Create a timeline of all dates in the document");
+        }
+        if (keys.some(k => k.includes('address') || k.includes('location'))) {
+            prompts.add("List and verify all addresses found");
+        }
+
+        // 3. Type-Specific Context
         if (type.includes('invoice') || type.includes('receipt')) {
-            return ["What is the total payable?", "Is this vendor legitimate?", "Extract line items", "Check invoice currency rates"];
+            prompts.add("Who is the vendor and what is the due date?");
+            prompts.add("Break down the taxes applied");
+        } else if (type.includes('contract') || type.includes('agreement')) {
+            prompts.add("What are the key obligations?");
+            prompts.add("List termination conditions");
+        } else if (type.includes('resume')) {
+            prompts.add("Summarize the candidate's core skills");
+            prompts.add("What is the most recent experience?");
+        } else if (type.includes('financial')) {
+            prompts.add("Summarize the net profit/loss");
+            prompts.add("Highlight any financial anomalies");
         }
-        if (type.includes('resume') || type.includes('cv')) {
-            return ["Summarize candidate in 3 points", "Verify company existence", "Key technical skills?", "Contact information"];
+
+        // Fallback
+        if (prompts.size === 0) {
+            prompts.add("Summarize this document");
+            prompts.add("List all identified entities");
         }
-        if (type.includes('contract') || type.includes('agreement')) {
-            return ["Parties involved?", "Key termination clauses?", "Important dates?", "Summarize main obligations"];
-        }
-        return ["Summarize in 5 bullet points", "Search for related news", "Identify important dates", "Extract all amounts"];
+
+        // Return top 4 distinct prompts
+        return Array.from(prompts).slice(0, 4);
     }, [extractedData]);
 
     const handleSend = async (messageText?: string) => {
@@ -88,10 +133,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ extractedData }) => {
         setIsLoading(true);
 
         try {
+            // Pass the current messages (history) + the extracted data context
             const { text, sources } = await askDocumentChat(extractedData, query, messages);
             setMessages(prev => [...prev, { role: 'model', content: text, sources }]);
         } catch (error) {
-            setMessages(prev => [...prev, { role: 'model', content: "Failed to process request." }]);
+            console.error("Chat Error:", error);
+            setMessages(prev => [...prev, { role: 'model', content: "I encountered an issue processing that request. Please try again." }]);
         } finally {
             setIsLoading(false);
         }
@@ -103,17 +150,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ extractedData }) => {
                 {messages.length === 0 && !isLoading && (
                     <div className="py-4 space-y-6">
                         <div className="text-center">
-                            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest mb-1">Knowledge Guide</h3>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Ask questions about your {extractedData.documentType}. <br/> I can also search the web for verification.</p>
+                            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 uppercase tracking-widest mb-1">
+                                {extractedData.documentType} Assistant
+                            </h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 max-w-[260px] mx-auto leading-relaxed">
+                                I have analyzed your document. Select a prompt or ask your own question to explore the data.
+                            </p>
                         </div>
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-2.5">
                             {dynamicSuggestions.map(prompt => (
                                 <button
                                     key={prompt}
                                     onClick={() => handleSend(prompt)}
-                                    className="text-xs font-bold text-left px-4 py-3 bg-white dark:bg-zinc-800 border border-black/5 dark:border-white/5 rounded-xl hover:bg-[#007AFF]/5 hover:text-[#007AFF] hover:border-[#007AFF]/20 transition-all shadow-sm"
+                                    className="text-xs font-bold text-left px-4 py-3 bg-white dark:bg-zinc-800 border border-black/5 dark:border-white/5 rounded-xl hover:bg-[#007AFF]/5 hover:text-[#007AFF] hover:border-[#007AFF]/20 transition-all shadow-sm group"
                                 >
-                                    {prompt}
+                                    <span className="group-hover:translate-x-1 transition-transform inline-block">{prompt}</span>
                                 </button>
                             ))}
                         </div>
@@ -121,7 +172,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ extractedData }) => {
                 )}
                 {messages.map((msg, index) => <ChatBubble key={index} message={msg} />)}
                 {isLoading && (
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-start gap-3 animate-fade-in">
                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#007AFF]/10 flex items-center justify-center shadow-inner">
                             <SparklesIcon className="w-4 h-4 text-[#5856D6]" />
                         </div>
@@ -135,15 +186,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ extractedData }) => {
                 <div ref={messagesEndRef} />
             </div>
             
-            <div className="mt-6 pt-6 border-t border-black/5 dark:border-white/5 flex-shrink-0">
+            <div className="mt-4 pt-4 border-t border-black/5 dark:border-white/5 flex-shrink-0">
                 <div className="relative group">
                     <textarea
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                        placeholder="Ask anything..."
+                        placeholder="Ask about your data..."
                         rows={1}
-                        className="w-full pl-4 pr-12 py-3.5 bg-gray-50 dark:bg-zinc-800 border border-black/10 dark:border-white/10 rounded-[1.5rem] focus:ring-2 focus:ring-[#007AFF]/50 focus:border-[#007AFF] transition-all resize-none text-sm font-medium text-gray-800 dark:text-gray-100"
+                        className="w-full pl-4 pr-12 py-3.5 bg-gray-50 dark:bg-zinc-800 border border-black/10 dark:border-white/10 rounded-[1.5rem] focus:ring-2 focus:ring-[#007AFF]/50 focus:border-[#007AFF] transition-all resize-none text-sm font-medium text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
                         disabled={isLoading}
                     />
                     <button

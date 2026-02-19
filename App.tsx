@@ -4,7 +4,8 @@ import { Header } from './components/Header';
 import { UploadSection } from './components/UploadSection';
 import { ProcessingView } from './components/ProcessingView';
 import { SettingsProvider, SettingsContext } from './contexts/SettingsContext';
-import { classifyDocument, performExtraction } from './services/geminiService';
+import { classifyDocument, performExtraction, proposeExtractionSchema } from './services/geminiService';
+import { audioAgent } from './services/audioAgent';
 import type { UploadedFile, ProcessingState, ExtractedData, Template, Preset, BatchResult } from './types';
 import { MAX_FILE_SIZE, SUPPORTED_FILE_TYPES } from './constants';
 import { Greeting } from './components/Greeting';
@@ -13,6 +14,7 @@ import { FilePreview } from './components/FilePreview';
 import { RecentExtractions } from './components/home/RecentExtractions';
 import { StatsBar } from './components/home/StatsBar';
 import { ClassificationConfirmationModal } from './components/ui/ClassificationConfirmationModal';
+import { SchemaProposalModal } from './components/ui/SchemaProposalModal';
 import { BatchSummaryModal } from './components/ui/BatchSummaryModal';
 import { GuidanceRail } from './components/home/GuidanceRail';
 import { AssistantPreview } from './components/home/AssistantPreview';
@@ -29,6 +31,8 @@ import { XMarkIcon } from './components/icons/XMarkIcon';
 import { SparklesIcon } from './components/icons/SparklesIcon';
 import { ListBulletIcon } from './components/icons/ListBulletIcon'; 
 import { Tooltip } from './components/ui/Tooltip';
+import { AppError } from './utils/errorManager';
+import { SystemAlert } from './components/ui/SystemAlert';
 
 // Increased threshold to ensure human verification for ambiguous docs
 const CLASSIFICATION_CONFIDENCE_THRESHOLD = 80;
@@ -80,6 +84,10 @@ function App() {
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [stats, setStats] = useState({ docsCount: 0, fieldsCount: 0 });
   const [classificationResult, setClassificationResult] = useState<{ docType: string; confidence: number; } | null>(null);
+  const [schemaProposal, setSchemaProposal] = useState<{ docType: string; confidence: number; fields: string[] } | null>(null);
+
+  // Critical System State (Segment 7.1)
+  const [criticalFailure, setCriticalFailure] = useState<{ type: 'SECURITY' | 'SYSTEM' | 'COMPLIANCE', message: string, id: string } | null>(null);
 
   // Global Drag & Drop State
   const [isDragging, setIsDragging] = useState(false);
@@ -105,6 +113,38 @@ function App() {
   
   // Seasonal Hook
   const { blobStyles } = useSeason();
+
+  // --- Error Handler Helper ---
+  const handleError = (e: any) => {
+      // Segment 7.1: Critical System Error Trigger
+      if (e instanceof AppError && (e.type === 'SECURITY' || e.type === 'SYSTEM')) {
+          setCriticalFailure({
+              type: e.type,
+              message: e.message,
+              id: crypto.randomUUID()
+          });
+          setProcessingState('error');
+          return;
+      }
+      
+      const msg = e instanceof Error ? e.message : 'An unexpected error occurred';
+      setError(msg);
+      setProcessingState('error');
+  };
+
+  // --- Audio Agent Lifecycle ---
+  useEffect(() => {
+      if (processingState === 'processing') {
+          audioAgent.startProcessing();
+      } else {
+          audioAgent.stopProcessing();
+          if (processingState === 'results' || processingState === 'batch_complete') {
+              audioAgent.playSuccess();
+          } else if (processingState === 'error' && !criticalFailure) {
+              audioAgent.playError();
+          }
+      }
+  }, [processingState, criticalFailure]);
 
   // --- Auto-Save & Restoration Logic ---
   useEffect(() => {
@@ -133,7 +173,7 @@ function App() {
           setFiles(pendingSession.files);
           setExtractedData(pendingSession.extractedData);
           setDescription(pendingSession.description);
-          setActivePresetId(pendingSession.activePreset); // Note: sessionManager needs update to match activePresetId
+          setActivePresetId(pendingSession.activePreset); 
           setProcessingState(pendingSession.processingState);
           setRestoreNotification(false);
           setPendingSession(null);
@@ -223,6 +263,7 @@ function App() {
   const continueSingleFileExtraction = async (confirmedDocType: string, customPrompt?: string) => {
     setProcessingState('processing');
     setClassificationResult(null);
+    setSchemaProposal(null);
     try {
       const finalDescription = customPrompt || description;
       const data = await performExtraction(files, confirmedDocType, finalDescription, settings.documentLanguage);
@@ -233,9 +274,16 @@ function App() {
       setStats(prev => ({ docsCount: prev.docsCount + 1, fieldsCount: prev.fieldsCount + fieldsCount }));
       addToHistory({ id: crypto.randomUUID(), fileNames: files.map(f => f.file.name), docType: data.documentType, timestamp: new Date().toISOString(), data });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'An error occurred during extraction.');
-      setProcessingState('error');
+      handleError(e);
     }
+  };
+
+  const handleSchemaConfirmation = (fields: string[]) => {
+      if (schemaProposal) {
+          const schemaInstructions = `Focus on extracting the following fields: ${fields.join(', ')}.`;
+          const mergedDescription = description ? `${description}\n\n${schemaInstructions}` : schemaInstructions;
+          continueSingleFileExtraction(schemaProposal.docType, mergedDescription);
+      }
   };
 
   const startPipeline = async () => {
@@ -261,11 +309,22 @@ function App() {
                 setClassificationResult(result);
                 setProcessingState('awaiting_classification');
             } else {
-                await continueSingleFileExtraction(result.docType);
+                // Feature: Dynamic Schema Generator
+                // If no preset (user hasn't defined schema), use the AI agent to propose one.
+                if (!activePresetId) {
+                    const proposedFields = await proposeExtractionSchema(files, result.docType);
+                    setSchemaProposal({ 
+                        docType: result.docType, 
+                        confidence: result.confidence,
+                        fields: proposedFields 
+                    });
+                    setProcessingState('reviewing_schema');
+                } else {
+                    await continueSingleFileExtraction(result.docType);
+                }
             }
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'An error occurred during classification.');
-            setProcessingState('error');
+            handleError(e);
         }
     } else {
         setProcessingState('processing');
@@ -284,6 +343,10 @@ function App() {
                 cumulativeFields += fieldsCount;
                 addToHistory({ id: crypto.randomUUID(), fileNames: [currentFile.file.name], docType: data.documentType, timestamp: new Date().toISOString(), data });
             } catch (e) {
+                if (e instanceof AppError && (e.type === 'SECURITY' || e.type === 'SYSTEM')) {
+                    handleError(e); // Freeze immediately
+                    return;
+                }
                 const errorMsg = e instanceof Error ? e.message : 'Unknown processing error.';
                 setBatchResults(prev => [...(prev || []), { file: currentFile, status: 'error', error: errorMsg }]);
             }
@@ -305,6 +368,7 @@ function App() {
     setDescription('');
     setActivePresetId(null);
     setClassificationResult(null);
+    setSchemaProposal(null);
     setBatchResults(null);
     setCurrentlyProcessingFileIndex(null);
     clearSession();
@@ -319,8 +383,7 @@ function App() {
             setProcessingState('results');
         })
         .catch(e => {
-            setError(e instanceof Error ? e.message : 'An error occurred during re-processing.');
-            setProcessingState('error');
+            handleError(e);
         });
   }, [files, description, settings.documentLanguage]);
 
@@ -413,7 +476,7 @@ function App() {
                 
                 {/* Main Content Area */}
                 <div className="flex-1 flex flex-col items-center px-4 w-full relative z-10 min-w-0">
-                    {/* Ambient Glow Background for Greeting & Upload Area - Redesigned Static Gradient */}
+                    {/* Ambient Glow Background for Greeting & Upload Area */}
                     <div className="absolute top-[-100px] left-1/2 -translate-x-1/2 w-[120%] max-w-[1000px] h-[800px] -z-10 pointer-events-none select-none overflow-visible">
                             {/* Light Blue - Top Left Center */}
                             <div className="absolute top-[10%] left-[20%] w-[50%] h-[50%] rounded-full bg-[#7dd3fc]/25 dark:bg-[#0ea5e9]/15 blur-[120px]" />
@@ -494,7 +557,6 @@ function App() {
             <div className="flex flex-col xl:flex-row items-start justify-center w-full relative flex-1 min-h-0">
                 
                 {/* Desktop: Focus Mode Left Sidebar (Collapsible) */}
-                {/* Mobile: Full Sidebar in Drawer */}
                 <div 
                     className={`
                         fixed inset-y-0 left-0 z-50 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-r border-gray-200 dark:border-zinc-800 shadow-2xl transform transition-all duration-300 ease-out
@@ -581,8 +643,7 @@ function App() {
                     </div>
                 </div>
                 
-                {/* Desktop: Right Floating Tool Trigger (Hidden in standard flow, shown here) */}
-                {/* Replaces the full right sidebar */}
+                {/* Desktop: Right Floating Tool Trigger */}
                 <div className="hidden xl:flex w-20 justify-center sticky top-24 z-20">
                      <Tooltip text="AI Capabilities" position="left">
                         <button 
@@ -594,123 +655,164 @@ function App() {
                      </Tooltip>
                 </div>
 
-                {/* Shared Right Panel Drawer (Desktop & Mobile) */}
+                {/* Shared Right Panel Drawer */}
                 <div 
                     className={`
                         fixed inset-y-0 right-0 z-50 w-80 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-l border-gray-200 dark:border-zinc-800 shadow-2xl transform transition-transform duration-300 ease-out
                         ${showMobileFeatures ? 'translate-x-0' : 'translate-x-full'}
+                        xl:hidden
                     `}
                 >
                     <div className="h-full overflow-y-auto p-6 ios-scroll flex flex-col">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-[#1d1d1f] dark:text-white">Capabilities</h3>
-                            <button onClick={() => setShowMobileFeatures(false)} className="p-2 bg-gray-100 dark:bg-zinc-800 rounded-full hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors">
+                            <button onClick={() => setShowMobileFeatures(false)} className="p-2 bg-gray-100 dark:bg-zinc-800 rounded-full">
                                 <XMarkIcon className="w-5 h-5 text-gray-500" />
                             </button>
                         </div>
                         <AssistantPreview />
                     </div>
                 </div>
-
-                {/* Backdrop for Right Drawer */}
+                
+                {/* Mobile Right Backdrop */}
                 {showMobileFeatures && (
-                    <div className="fixed inset-0 bg-black/20 z-40 backdrop-blur-sm transition-opacity" onClick={() => setShowMobileFeatures(false)} />
+                    <div className="xl:hidden fixed inset-0 bg-black/20 z-40 backdrop-blur-sm" onClick={() => setShowMobileFeatures(false)} />
                 )}
             </div>
           </div>
         );
       case 'processing':
-        return <div className="flex justify-center items-center h-[60vh]"><ProcessingView files={files} currentIndex={currentlyProcessingFileIndex} batchResults={batchResults} /></div>;
       case 'awaiting_classification':
-        return <ClassificationConfirmationModal isOpen={true} suggestedType={classificationResult?.docType || 'Unknown'} confidence={classificationResult?.confidence || 0} presets={settings.presets} onConfirm={continueSingleFileExtraction} onCancel={handleNewUpload} />;
-      case 'batch_complete':
-        return <BatchSummaryModal isOpen={true} results={batchResults || []} onClose={handleNewUpload} onSelectResult={handleSelectBatchResult} />;
-      case 'results':
-        return extractedData ? (
-            <WorkspaceLayout 
-                data={extractedData} 
+      case 'reviewing_schema':
+        return (
+            <ProcessingView 
                 files={files} 
-                onNewUpload={handleNewUpload} 
-                onReprocess={handleReprocess} 
-                onAddFiles={handleFileChange} 
+                currentIndex={currentlyProcessingFileIndex} 
+                batchResults={batchResults}
+            />
+        );
+      case 'results':
+        return extractedData && files.length > 0 && (
+            <WorkspaceLayout
+                data={extractedData}
+                files={files}
+                onNewUpload={handleNewUpload}
+                onReprocess={handleReprocess}
+                onAddFiles={handleFileChange}
                 onRemoveFile={handleRemoveFile}
                 isLeftSidebarOpen={isLeftOpen}
                 onToggleLeftSidebar={toggleLeftSidebar}
                 isRightSidebarOpen={isRightOpen}
                 onToggleRightSidebar={toggleRightSidebar}
             />
-        ) : null;
+        );
       case 'error':
         return (
-          <div className="flex flex-col items-center justify-center h-[60vh] animate-fade-in px-4">
-            <div className="text-center p-8 md:p-12 bg-red-50/80 dark:bg-red-900/20 border border-red-100 dark:border-red-500/20 backdrop-blur-xl rounded-3xl max-w-lg mx-auto shadow-xl w-full">
-              <h2 className="text-2xl font-bold text-red-700 dark:text-red-300 font-display">Extraction Failed</h2>
-              <p className="text-red-600 dark:text-red-400 mt-3 font-medium break-words">{error}</p>
-              <button onClick={handleNewUpload} className="mt-8 bg-red-500 text-white font-bold py-3 px-8 rounded-full shadow-md transition-all active:scale-95 font-display hover:bg-red-600 w-full sm:w-auto">Start Over</button>
+          <div className="w-full max-w-2xl mx-auto mt-24 text-center animate-slide-in">
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-3xl p-10 shadow-xl">
+                <div className="w-16 h-16 bg-red-100 dark:bg-red-800/40 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <XMarkIcon className="w-8 h-8 text-red-600 dark:text-red-400" />
+                </div>
+                <h3 className="text-2xl font-bold text-red-700 dark:text-red-300 mb-3 font-display">Processing Failed</h3>
+                <p className="text-gray-600 dark:text-gray-300 mb-8 max-w-md mx-auto">{error || "An unexpected error occurred. Please try again."}</p>
+                <div className="flex justify-center gap-4">
+                    <button 
+                        onClick={() => setProcessingState('idle')}
+                        className="px-6 py-3 bg-white dark:bg-zinc-800 text-gray-700 dark:text-gray-200 rounded-xl font-bold shadow-sm hover:bg-gray-50 dark:hover:bg-zinc-700 transition-all"
+                    >
+                        Go Home
+                    </button>
+                    <button 
+                        onClick={() => { setProcessingState('idle'); startPipeline(); }}
+                        className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-md shadow-red-500/20 transition-all"
+                    >
+                        Try Again
+                    </button>
+                </div>
             </div>
           </div>
+        );
+      case 'batch_complete':
+        return (
+            <div className="w-full h-full flex items-center justify-center p-6">
+                <BatchSummaryModal 
+                    isOpen={true} 
+                    results={batchResults || []} 
+                    onClose={handleNewUpload} 
+                    onSelectResult={handleSelectBatchResult}
+                />
+            </div>
         );
       default:
         return null;
     }
-  }, [processingState, files, extractedData, error, selectedTemplate, description, activePresetId, activePresetName, stats, history, classificationResult, batchResults, currentlyProcessingFileIndex, handleFileChange, handleRemoveFile, handleNewUpload, handleReprocess, handleSelectHistoryItem, clearHistory, settings.presets, settings.documentLanguage, isLeftOpen, isRightOpen, toggleLeftSidebar, toggleRightSidebar, blobStyles, showMobileWorkflow, showMobileFeatures, isLeftPanelHovered]);
-  
-  const isResultsView = processingState === 'results';
+  }, [processingState, files, extractedData, error, selectedTemplate, description, activePresetId, settings.presets, history, classificationResult, schemaProposal, currentlyProcessingFileIndex, batchResults, isLeftOpen, toggleLeftSidebar, isRightOpen, toggleRightSidebar, stats, showMobileWorkflow, showMobileFeatures, isLeftPanelHovered, activePresetName]);
 
   return (
     <div 
-        className={`h-screen w-screen flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 overflow-hidden transition-colors duration-300 font-sans text-[var(--text-primary)]`}
-        onDragEnter={handleGlobalDragEnter} onDragLeave={handleGlobalDragLeave} onDragOver={handleGlobalDragOver} onDrop={handleGlobalDrop}
+        className="flex flex-col h-screen overflow-hidden bg-white dark:bg-[#020617] text-gray-900 dark:text-white transition-colors duration-500 font-body relative"
+        onDragEnter={handleGlobalDragEnter}
+        onDragLeave={handleGlobalDragLeave}
+        onDragOver={handleGlobalDragOver}
+        onDrop={handleGlobalDrop}
     >
-        {/* The Floating Glass Frame */}
-        <div className="relative w-full h-full max-w-[1800px] bg-[var(--glass-surface)] backdrop-blur-3xl rounded-[2.5rem] border border-[var(--glass-border)] shadow-[0_20px_60px_-10px_rgba(0,0,0,0.1)] overflow-hidden flex flex-col transition-all duration-500">
-            <Header 
-                onHomeClick={handleNewUpload} 
-            />
-            <main className={`flex-1 w-full relative z-20 ${isResultsView ? 'overflow-hidden' : 'overflow-y-auto ios-scroll'}`}>
-                {renderContent}
-            </main>
+      <div className={`absolute top-[-300px] left-[-300px] w-[800px] h-[800px] rounded-full blur-[120px] opacity-30 pointer-events-none transition-colors duration-1000 ${blobStyles.blob1}`} />
+      <div className={`absolute bottom-[-300px] right-[-300px] w-[800px] h-[800px] rounded-full blur-[120px] opacity-30 pointer-events-none transition-colors duration-1000 ${blobStyles.blob2}`} />
+      <div className={`absolute top-[40%] left-[60%] w-[600px] h-[600px] rounded-full blur-[100px] opacity-20 pointer-events-none transition-colors duration-1000 ${blobStyles.blob3}`} />
+      
+      <PerspectiveGrid />
 
-            {/* Perspective Data Floor - Only on Home (idle) */}
-            {processingState === 'idle' && <PerspectiveGrid />}
-        </div>
+      {/* Critical System Alert Lockout (Segment 7.1) */}
+      {criticalFailure && (
+          <SystemAlert 
+              type={criticalFailure.type}
+              message={criticalFailure.message}
+              logId={criticalFailure.id}
+          />
+      )}
 
-        {/* Global Drag & Drop Overlay in Portal */}
-        {isDragging && (
-            <Portal>
-                <div className="fixed inset-0 z-[100] bg-white/60 dark:bg-black/60 backdrop-blur-xl flex items-center justify-center pointer-events-none animate-fade-in p-6">
-                    <div className="border-4 border-[#007AFF] border-dashed rounded-[3rem] w-full h-full max-w-[1200px] max-h-[800px] flex flex-col items-center justify-center p-8 md:p-12 bg-white/40 dark:bg-white/5 shadow-2xl">
-                        <div className="p-8 rounded-full bg-[#007AFF]/10 text-[#007AFF] mb-8 animate-bounce">
-                            <ArrowUpTrayIcon className="w-20 h-20" />
-                        </div>
-                        <h2 className="text-3xl md:text-4xl font-extrabold text-[#1d1d1f] dark:text-white font-display text-center">
-                            Drop to Extract
-                        </h2>
-                        <p className="mt-4 text-lg md:text-xl text-[#86868b] dark:text-gray-400 font-medium text-center max-w-md">
-                            Release your files here to instantly start the AI analysis process.
-                        </p>
-                    </div>
-                </div>
-            </Portal>
-        )}
+      {isDragging && (
+          <div className="absolute inset-0 z-[100] bg-white/90 dark:bg-black/90 backdrop-blur-md flex flex-col items-center justify-center animate-fade-in pointer-events-none">
+              <div className="w-24 h-24 rounded-3xl bg-blue-500/10 flex items-center justify-center mb-6 animate-bounce">
+                  <ArrowUpTrayIcon className="w-12 h-12 text-[#007AFF]" />
+              </div>
+              <h2 className="text-3xl font-bold text-[#1d1d1f] dark:text-white font-display">Drop files to extract</h2>
+          </div>
+      )}
 
-        {/* Restore Session Notification */}
-        {restoreNotification && (
-            <Notification
-                message="Previous session found. Restore it?"
-                type="info"
-                onClose={handleDismissRestore}
-                action={{ label: "Restore", onClick: handleRestoreSession }}
-            />
-        )}
+      <Header onHomeClick={handleNewUpload} />
+      
+      <main className="flex-1 w-full relative z-10 flex flex-col min-h-0">
+        {renderContent}
+      </main>
+
+      <ClassificationConfirmationModal 
+        isOpen={processingState === 'awaiting_classification'}
+        suggestedType={classificationResult?.docType || ''}
+        confidence={classificationResult?.confidence || 0}
+        presets={settings.presets}
+        onConfirm={continueSingleFileExtraction}
+        onCancel={handleNewUpload}
+      />
+
+      <SchemaProposalModal 
+        isOpen={processingState === 'reviewing_schema'}
+        docType={schemaProposal?.docType || ''}
+        proposedFields={schemaProposal?.fields || []}
+        onConfirm={handleSchemaConfirmation}
+        onCancel={handleNewUpload}
+      />
+
+      {restoreNotification && (
+          <Notification 
+            message="Resume your previous session?" 
+            type="info" 
+            onClose={handleDismissRestore}
+            action={{ label: 'Resume', onClick: handleRestoreSession }}
+          />
+      )}
     </div>
   );
 }
 
-const AppWrapper: React.FC = () => (
-    <SettingsProvider>
-        <App />
-    </SettingsProvider>
-);
-
-export default AppWrapper;
+export default App;

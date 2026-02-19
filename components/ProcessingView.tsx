@@ -10,12 +10,16 @@ interface ProcessingViewProps {
     batchResults?: BatchResult[] | null;
 }
 
+// Strictly aligned with Segment 6.3: Iterative Cognitive Loop (ICL)
 const PROCESSING_STEPS = [
-    "Analyzing document structure...",
-    "Understanding layout and context...",
-    "Extracting meaningful data...",
-    "Verifying data integrity...",
-    "Preparing review-ready output..."
+    "ICL Step 1: Context Assimilation...",
+    "ICL Step 2: Risk Evaluation...",
+    "ICL Step 3: Plan Formulation...",
+    "ICL Step 4: Tool Execution...",
+    "ICL Step 5: Result Verification...",
+    "ICL Step 6: Confidence Scoring...",
+    "ICL Step 7: Memory Update...",
+    "ICL Step 8: Telemetry Logging..."
 ];
 
 export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIndex, batchResults }) => {
@@ -26,13 +30,16 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
 
     // Text Rotation Logic
     useEffect(() => {
+        // Approximate total processing time spread across 8 steps
+        const stepDuration = 1800; 
+        
         const interval = setInterval(() => {
             setFade(false); // Start fade out
             setTimeout(() => {
                 setStepIndex((prev) => (prev + 1) % PROCESSING_STEPS.length);
                 setFade(true); // Start fade in
             }, 600); // Wait for fade out to complete (matches CSS duration)
-        }, 3200); 
+        }, stepDuration); 
 
         return () => clearInterval(interval);
     }, []);
@@ -172,12 +179,12 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
 
                     {/* --- Text --- */}
                     <h2 className="text-lg font-bold text-[#1d1d1f] dark:text-white tracking-tight font-display mb-3 relative z-10">
-                        {isBatch ? `Processing Batch (${(currentIndex ?? 0) + 1}/${files.length})` : "Processing Document"}
+                        {isBatch ? `Core Engine Batch (${(currentIndex ?? 0) + 1}/${files.length})` : "Core Extraction Engine"}
                     </h2>
 
                     <div className="h-5 flex items-center justify-center overflow-hidden w-full relative z-10">
                         <p 
-                            className={`text-[13px] font-medium text-[#86868b] dark:text-gray-400 transition-all duration-700 ease-in-out transform ${fade ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-1 scale-95'}`}
+                            className={`text-[12px] font-mono font-medium text-[#86868b] dark:text-gray-400 uppercase tracking-widest transition-all duration-700 ease-in-out transform ${fade ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-1 scale-95'}`}
                         >
                             {PROCESSING_STEPS[stepIndex]}
                         </p>
@@ -210,7 +217,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ files, currentIn
                                             Icon = CheckCircleIcon;
                                         }
                                     } else if (isCurrent) {
-                                        statusText = 'Processing...';
+                                        statusText = 'Running ICL...';
                                         statusColor = 'text-[#007AFF]';
                                     }
 

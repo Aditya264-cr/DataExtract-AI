@@ -12,9 +12,10 @@ interface DocumentHighlighterProps {
 }
 
 const getConfidenceStyles = (score: number): { borderColor: string; glow: string } => {
-    if (score >= 90) return { borderColor: 'rgba(52, 199, 89, 0.7)', glow: 'none' }; // Green
-    if (score >= 75) return { borderColor: 'rgba(255, 149, 0, 0.7)', glow: '0 0 7px rgba(255, 149, 0, 0.6)' }; // Orange
-    return { borderColor: 'rgba(255, 59, 48, 0.7)', glow: '0 0 7px rgba(255, 59, 48, 0.6)' }; // Red
+    if (score >= 90) return { borderColor: 'rgba(52, 199, 89, 0.7)', glow: 'none' }; // High (Green)
+    if (score >= 80) return { borderColor: 'rgba(255, 204, 0, 0.7)', glow: '0 0 7px rgba(255, 204, 0, 0.6)' }; // Moderate (Yellow)
+    if (score >= 70) return { borderColor: 'rgba(255, 149, 0, 0.7)', glow: '0 0 7px rgba(255, 149, 0, 0.6)' }; // Low (Orange)
+    return { borderColor: 'rgba(255, 59, 48, 0.7)', glow: '0 0 10px rgba(255, 59, 48, 0.8)' }; // Very Low (Red)
 };
 
 export const DocumentHighlighter: React.FC<DocumentHighlighterProps> = ({ 
@@ -67,10 +68,6 @@ export const DocumentHighlighter: React.FC<DocumentHighlighterProps> = ({
     // Sync Zoom to Active Field
     useEffect(() => {
         if (!activeHighlight || !imageSize || !containerRef.current) {
-            // Reset zoom if no active field or just reset to 1 if user navigates away? 
-            // Better to keep context if possible, but for "Sync" we zoom.
-            // If activeHighlight becomes null (blur), we might want to stay or reset. 
-            // For now, let's reset only if strictly needed, otherwise persist until new focus.
             return;
         }
 

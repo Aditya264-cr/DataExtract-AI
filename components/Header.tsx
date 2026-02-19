@@ -5,6 +5,8 @@ import { HeaderFAQIcon } from './icons/HeaderFAQIcon';
 import { HeaderHomeIcon } from './icons/HeaderHomeIcon';
 import { InformationCircleIcon } from './icons/InformationCircleIcon';
 import { BellIcon } from './icons/BellIcon';
+import { SpeakerWaveIcon } from './icons/SpeakerWaveIcon';
+import { SpeakerXMarkIcon } from './icons/SpeakerXMarkIcon';
 import { FAQPanel } from './FAQPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { CopyrightPanel } from './CopyrightPanel';
@@ -19,7 +21,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ 
     onHomeClick
 }) => {
-    const { activePanel, setActivePanel } = useContext(SettingsContext);
+    const { activePanel, setActivePanel, settings, updateSetting } = useContext(SettingsContext);
     const [hasUnreadUpdates, setHasUnreadUpdates] = useState(false);
 
     // Check for unread updates
@@ -40,6 +42,10 @@ export const Header: React.FC<HeaderProps> = ({
     const handleHomeClick = () => { 
         setActivePanel(null); 
         onHomeClick(); 
+    };
+
+    const toggleSound = () => {
+        updateSetting('soundEnabled', !settings.soundEnabled);
     };
 
     const buttonClasses = "p-2.5 rounded-xl text-gray-500 dark:text-gray-300 hover:text-[#007AFF] hover:bg-white/50 dark:hover:bg-white/10 transition-all duration-300 active:scale-95 relative";
@@ -68,6 +74,18 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-1">
+                        <Tooltip text={settings.soundEnabled ? "Mute Audio Agent" : "Enable Audio Agent"} position="bottom">
+                            <button onClick={toggleSound} className={buttonClasses}>
+                                {settings.soundEnabled ? (
+                                    <SpeakerWaveIcon className="w-5 h-5" />
+                                ) : (
+                                    <SpeakerXMarkIcon className="w-5 h-5 text-gray-400" />
+                                )}
+                            </button>
+                        </Tooltip>
+
+                        <div className="w-px h-6 bg-gray-300 dark:bg-white/10 mx-2"></div>
+
                         <Tooltip text="Go to Home" position="bottom">
                             <button onClick={handleHomeClick} className={buttonClasses}>
                                 <HeaderHomeIcon className="w-5 h-5" />

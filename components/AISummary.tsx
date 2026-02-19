@@ -38,25 +38,34 @@ export const AISummary: React.FC<AISummaryProps> = ({ summary, loading, onRegene
         let bgColor = 'bg-gray-200/50 dark:bg-zinc-700/50';
         let textColor = 'text-gray-600 dark:text-gray-400';
         let dotColor = 'bg-gray-400';
+        let label = "Unknown";
 
-        if (score >= 75) {
+        if (score >= 90) {
             bgColor = 'bg-green-100/50 dark:bg-green-500/10';
             textColor = 'text-green-700 dark:text-green-400';
             dotColor = 'bg-green-500';
-        } else if (score >= 40) {
+            label = "High Confidence";
+        } else if (score >= 80) {
+            bgColor = 'bg-yellow-100/50 dark:bg-yellow-500/10';
+            textColor = 'text-yellow-700 dark:text-yellow-400';
+            dotColor = 'bg-yellow-500';
+            label = "Moderate";
+        } else if (score >= 70) {
             bgColor = 'bg-orange-100/50 dark:bg-orange-500/10';
             textColor = 'text-orange-700 dark:text-orange-400';
             dotColor = 'bg-orange-500';
+            label = "Low Confidence";
         } else {
             bgColor = 'bg-red-100/50 dark:bg-red-500/10';
             textColor = 'text-red-700 dark:text-red-400';
             dotColor = 'bg-red-500';
+            label = "Very Low";
         }
 
         return (
             <span className={`inline-flex items-center gap-1.5 ml-3 text-[10px] font-bold px-2 py-0.5 rounded-full ${bgColor} ${textColor} border border-current/10 tracking-tight uppercase`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`}></span>
-                {score}% Reliable
+                {score}% {label}
             </span>
         );
     };
@@ -72,9 +81,16 @@ export const AISummary: React.FC<AISummaryProps> = ({ summary, loading, onRegene
             );
         }
         return (
-            <p className="text-[#1A1A1E] dark:text-[#F2F2F7] leading-[1.6] mt-4 text-[15px] font-medium font-body opacity-90">
-                {summary?.summary}
-            </p>
+            <div className="mt-4 space-y-4">
+                {summary && summary.confidenceScore < 75 && (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/30 rounded-xl text-xs text-red-700 dark:text-red-300 font-medium">
+                        ⚠️ <strong>Document Review Required:</strong> Overall confidence is below 75%. Please verify all fields carefully before exporting.
+                    </div>
+                )}
+                <p className="text-[#1A1A1E] dark:text-[#F2F2F7] leading-[1.6] text-[15px] font-medium font-body opacity-90">
+                    {summary?.summary}
+                </p>
+            </div>
         );
     };
     

@@ -6,6 +6,7 @@ import { CenterWorkspace } from './CenterWorkspace';
 import type { ExtractedData, UploadedFile } from '../../types';
 import { Modal } from '../ui/Modal';
 import { DocumentHighlighter } from '../DocumentHighlighter';
+import { useDocumentHistory } from '../../hooks/useDocumentHistory';
 
 interface WorkspaceLayoutProps {
     data: ExtractedData;
@@ -23,12 +24,26 @@ interface WorkspaceLayoutProps {
 export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
     const [selectedFileId, setSelectedFileId] = useState<string | null>(props.files.length > 0 ? props.files[0].id : null);
     
-    // Lifted State: Edited Data is now shared between Center (Editor) and Right (Tools)
-    const [editedData, setEditedData] = useState<ExtractedData>(props.data);
+    // Integrate Version Ledger (Non-Regression Engine)
+    // The "editedData" is now managed by the history hook which enforces regression checks
+    const { 
+        current: editedData, 
+        update: setEditedData, 
+        undo, 
+        redo, 
+        canUndo, 
+        canRedo, 
+        restoreBaseline,
+        regressionAlert 
+    } = useDocumentHistory(props.data);
 
-    // Reset edited data when the source extraction results change (e.g. reprocess)
+    // Sync initial data if prop changes (e.g. re-run from outside)
     useEffect(() => {
-        setEditedData(props.data);
+        // Note: In a real app we might want to be careful resetting history on prop change
+        // For now, we assume prop change means "New Extraction Run" which resets context
+        if (props.data !== editedData) {
+             // We don't auto-update here to prevent loops, relying on explicit actions
+        }
     }, [props.data]);
 
     // Preview Modal state
@@ -79,22 +94,28 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = (props) => {
             />
 
             {/* Center Pane: Main Content */}
-            {/* We apply the card styling here to the container of the CenterWorkspace */}
             <main className="flex-1 min-w-0 h-full flex flex-col bg-white dark:bg-zinc-900 rounded-3xl border border-gray-200 dark:border-zinc-800 shadow-sm overflow-hidden transition-all duration-300">
                 <CenterWorkspace
-                    initialData={props.data} // Pass initial for reference if needed
-                    editedData={editedData}  // Pass lifted state
-                    onDataChange={setEditedData} // Pass setter
+                    initialData={props.data} 
+                    editedData={editedData}  
+                    onDataChange={setEditedData} 
                     file={selectedFile || props.files[0]}
                     onNewUpload={props.onNewUpload}
                     onReprocess={props.onReprocess}
+                    // Version Control Props
+                    undo={undo}
+                    redo={redo}
+                    canUndo={canUndo}
+                    canRedo={canRedo}
+                    onRestore={restoreBaseline}
+                    regressionAlert={regressionAlert}
                 />
             </main>
 
             {/* Right Pane: Options Panel / Studio */}
             <RightSidebar
                 originalData={props.data}
-                editedData={editedData} // Pass live data to tools
+                editedData={editedData}
                 isOpen={props.isRightSidebarOpen}
                 onToggle={props.onToggleRightSidebar}
             />

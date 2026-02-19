@@ -1,6 +1,7 @@
 
 import React, { createContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { Template, Preset } from '../types';
+import { audioAgent } from '../services/audioAgent';
 
 type Settings = {
     // Appearance
@@ -27,6 +28,7 @@ type Settings = {
     documentLanguage: string;
     highContrast: boolean;
     tooltipsEnabled: boolean;
+    soundEnabled: boolean; // New Setting
 
     // Data & Privacy
     savePreferences: boolean;
@@ -83,6 +85,7 @@ const defaultSettings: Settings = {
     documentLanguage: 'auto',
     highContrast: false,
     tooltipsEnabled: true,
+    soundEnabled: true, // Default to ON for the experience
     savePreferences: true,
     systemMode: 'PROFESSIONAL',
     templates: [],
@@ -119,6 +122,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 if (!merged.systemMode) merged.systemMode = 'PROFESSIONAL';
                 if (!merged.season) merged.season = 'auto';
                 if (merged.showWatermark === undefined) merged.showWatermark = true;
+                if (merged.soundEnabled === undefined) merged.soundEnabled = true;
                 
                 // Backwards compatibility for old 'darkMode' boolean if it exists
                 if (initial.darkMode !== undefined && !initial.theme) {
@@ -157,6 +161,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             console.error("Failed to save settings to localStorage", error);
         }
     }, []);
+
+    // Apply Audio Setting Side Effect
+    useEffect(() => {
+        audioAgent.setMuted(!settings.soundEnabled);
+    }, [settings.soundEnabled]);
 
     // Apply Side Effects (Theme, Glass, Contrast)
     useEffect(() => {
